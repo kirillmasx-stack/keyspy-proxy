@@ -333,6 +333,41 @@ app.post('/api/ads-analyzer', async (req, res) => {
       return res.json({ success: true, data: { ads: keywords, mode, query, total: keywords.length } });
     }
 
+    // Enrich keyword mode with competitor keyword data
+    if (mode === 'keyword' && ads.length > 0) {
+      const domains = [...new Set(ads.map(a => a.domain).filter(Boolean))].slice(0, 5);
+      console.log('Enriching competitor domains:', domains);
+
+      await Promise.all(domains.map(async domain => {
+        try {
+          const kwRes = await axios.post(
+            `${DFORSEO_BASE}/dataforseo_labs/google/ranked_keywords/live`,
+            [{ target: domain, location_code, language_code, limit: 15, order_by: ['keyword_data.keyword_info.search_volume,desc'] }],
+            { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
+          );
+          const kwTask = kwRes.data?.tasks?.[0];
+          if (kwTask?.status_code === 20000) {
+            const items = kwTask.result?.[0]?.items || [];
+            const keywords = items.map(item => ({
+              keyword: item.keyword_data?.keyword || '',
+              volume: item.keyword_data?.keyword_info?.search_volume || 0,
+              cpc: item.keyword_data?.keyword_info?.cpc || 0,
+              position: item.ranked_serp_element?.serp_item?.rank_absolute || null,
+              type: item.ranked_serp_element?.serp_item?.type || 'organic'
+            })).filter(k => k.keyword);
+            // Attach to all ads from this domain
+            ads.filter(a => a.domain === domain).forEach(a => {
+              a.competitor_keywords = keywords;
+            });
+          }
+        } catch(e) {
+          console.log('Keyword enrichment error for', domain, ':', e.message);
+        }
+      }));
+
+      console.log('Enrichment done for', domains.length, 'domains');
+    }
+
     console.log('Ads found:', ads.length);
     res.json({ success: true, data: { ads, mode, query, location_code, device, total: ads.length } });
   } catch (err) {
@@ -365,79 +400,105 @@ function parseAdItem(item) {
 }
 
 // ── POST /api/ads-transparency ────────────────────────────────────────────────
-// Google Ads Transparency Center — real ads by advertiser domain
+// Gets REAL ads from Google Ads Transparency Center via ads_advertisers + ads_search
 app.post('/api/ads-transparency', async (req, res) => {
   try {
     const { domain, location_code = 2826, language_code = 'en', date_from, date_to, depth = 40, sort_by = 'newest' } = req.body;
     if (!domain) return res.status(400).json({ error: 'domain is required' });
 
-    // Use DataForSEO Labs domain rank overview + ranked keywords for transparency
-    // Step 1: Get domain overview
-    const overviewRes = await axios.post(
-      `${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
-      [{ target: domain, location_code, language_code }],
+    // Step 1: Find advertiser_ids for this domain
+    const advRes = await axios.post(
+      `${DFORSEO_BASE}/serp/google/ads_advertisers/live/advanced`,
+      [{ target: domain, location_code, language_code, depth: 10 }],
       { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
     );
-    const overviewTask = overviewRes.data?.tasks?.[0];
-    console.log('Transparency overview status:', overviewTask?.status_code, overviewTask?.status_message);
+    const advTask = advRes.data?.tasks?.[0];
+    console.log('Advertisers status:', advTask?.status_code, advTask?.status_message);
 
-    const metrics = overviewTask?.result?.[0]?.metrics || {};
-    const paid_count = metrics.paid?.count || 0;
-    const paid_etv = Math.round(metrics.paid?.etv || 0);
-    const organic_count = metrics.organic?.count || 0;
+    let advertiser_ids = [];
+    if (advTask?.status_code === 20000) {
+      const advItems = advTask.result?.[0]?.items || [];
+      advertiser_ids = advItems.map(i => i.advertiser_id).filter(Boolean).slice(0, 5);
+      console.log('Advertiser IDs found:', advertiser_ids.length);
+    }
 
-    // Step 2: Get top paid keywords for this domain with filters
-    const kwPayload = {
-      target: domain,
+    if (!advertiser_ids.length) {
+      return res.status(400).json({ 
+        error: `No advertiser found for ${domain}. This domain may not be running Google Ads or may not be indexed in Transparency Center yet.`
+      });
+    }
+
+    // Step 2: Post task to get real ads
+    const adsPayload = {
+      advertiser_ids,
       location_code,
       language_code,
-      limit: Math.min(depth, 40),
-      order_by: [sort_by === 'oldest' ? 'keyword_data.keyword_info.search_volume,asc' : 'keyword_data.keyword_info.search_volume,desc']
+      depth: Math.min(depth, 40)
     };
-    const kwRes = await axios.post(
-      `${DFORSEO_BASE}/dataforseo_labs/google/ranked_keywords/live`,
-      [kwPayload],
+    if (date_from) adsPayload.date_from = date_from;
+    if (date_to) adsPayload.date_to = date_to;
+
+    const taskRes = await axios.post(
+      `${DFORSEO_BASE}/serp/google/ads_search/task_post`,
+      [adsPayload],
       { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
     );
-    const kwTask = kwRes.data?.tasks?.[0];
-    console.log('Transparency keywords status:', kwTask?.status_code, kwTask?.status_message);
+    const taskId = taskRes.data?.tasks?.[0]?.id;
+    console.log('Ads search task ID:', taskId);
 
-    const kwItems = kwTask?.result?.[0]?.items || [];
+    if (!taskId) {
+      return res.status(400).json({ error: taskRes.data?.tasks?.[0]?.status_message || 'Failed to post task' });
+    }
 
-    // Apply date filter client-side on first_seen/last_seen if available
-    const filteredItems = kwItems.filter(item => {
-      if (!date_from && !date_to) return true;
-      const seen = item.ranked_serp_element?.serp_item?.rank_changes?.previous_rank_absolute;
-      return true; // DataForSEO Labs doesn't expose dates at keyword level
-    });
+    // Step 3: Poll for results (max 20 seconds)
+    let result = null;
+    for (let i = 0; i < 5; i++) {
+      await new Promise(r => setTimeout(r, 4000));
+      const getRes = await axios.get(
+        `${DFORSEO_BASE}/serp/google/ads_search/task_get/advanced/${taskId}`,
+        { headers: { Authorization: getAuthHeader() } }
+      );
+      const t = getRes.data?.tasks?.[0];
+      console.log(`Poll ${i+1}: status=${t?.status_code} msg=${t?.status_message}`);
+      if (t?.status_code === 20000) { result = t; break; }
+    }
 
-    // Build ads from keyword data
-    const ads = filteredItems.map(item => ({
-      keyword: item.keyword_data?.keyword || '',
-      volume: item.keyword_data?.keyword_info?.search_volume || 0,
-      cpc: item.keyword_data?.keyword_info?.cpc || 0,
-      position: item.ranked_serp_element?.serp_item?.rank_absolute || 1,
-      titles: [item.ranked_serp_element?.serp_item?.title || domain].filter(Boolean),
-      description: item.ranked_serp_element?.serp_item?.description || '',
-      display_url: item.ranked_serp_element?.serp_item?.breadcrumb || domain,
-      domain: domain,
-      url: item.ranked_serp_element?.serp_item?.url || '',
-      sitelinks: [], callouts: [], promos: [],
+    if (!result) {
+      return res.status(400).json({ error: 'Task timed out. Try again — results may take a few seconds.' });
+    }
+
+    const items = result.result?.[0]?.items || [];
+    const ads = items.map((item, idx) => ({
+      position: item.rank_absolute || idx + 1,
+      advertiser: item.advertiser_name || domain,
+      domain: item.domain || domain,
+      titles: item.title_lines || (item.title ? [item.title] : []),
+      description: item.description || '',
+      display_url: item.breadcrumb || domain,
+      url: item.url || '',
+      first_seen: item.first_seen || null,
+      last_seen: item.last_seen || null,
+      sitelinks: (item.sitelinks || []).map(s => ({ title: s.title, description: s.description })),
+      callouts: [], promos: [],
       source: 'transparency'
     }));
 
+    // Sort
+    if (sort_by === 'oldest') {
+      ads.sort((a, b) => (a.first_seen || '') > (b.first_seen || '') ? 1 : -1);
+    } else {
+      ads.sort((a, b) => (a.last_seen || '') < (b.last_seen || '') ? 1 : -1);
+    }
+
+    console.log('Real transparency ads found:', ads.length);
     res.json({
       success: true,
       data: {
-        domain,
-        ads,
-        total: ads.length,
-        paid_keywords: paid_count,
-        paid_etv,
-        organic_keywords: organic_count,
+        domain, ads, total: ads.length,
+        advertiser_ids,
         date_from: date_from || null,
         date_to: date_to || null,
-        summary: `${domain} runs ads on ~${paid_count} keywords · Est. traffic value $${paid_etv}/mo · ${organic_count} organic keywords${date_from ? ` · From: ${date_from}` : ''}${date_to ? ` · To: ${date_to}` : ''}`,
+        summary: `${ads.length} real ads found for ${domain} from Google Ads Transparency Center`,
         source: 'google_transparency'
       }
     });
@@ -446,6 +507,7 @@ app.post('/api/ads-transparency', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 function parseAdsItem(item) {
   const sitelinks = (item.sitelinks || []).map(s => ({ title: s.title, description: s.description, url: s.url }));
