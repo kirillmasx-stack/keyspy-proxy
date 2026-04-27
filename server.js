@@ -35,17 +35,15 @@ app.post('/api/keywords', async (req, res) => {
     // location_code 2826 = United Kingdom
     // Full list: https://api.dataforseo.com/v3/keywords_data/google/locations
 
-    // Use keyword_ideas endpoint - returns related keywords with volume/cpc
+    // Use keywords_for_site or search_volume endpoint
     const payload = [{
-      keyword,
+      keywords: [keyword],
       location_code,
-      language_code,
-      limit: 20,
-      order_by: ["search_volume,desc"]
+      language_code
     }];
 
     const response = await axios.post(
-      `${DFORSEO_BASE}/keywords_data/google_ads/keyword_ideas/live`,
+      `${DFORSEO_BASE}/keywords_data/google_ads/search_volume/live`,
       payload,
       { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
     );
