@@ -157,6 +157,103 @@ app.post('/api/serp-ads', async (req, res) => {
   }
 });
 
+// ── POST /api/serp-organic ────────────────────────────────────────────────────
+app.post('/api/serp-organic', async (req, res) => {
+  try {
+    const { keyword, location_code = 2826, language_code = 'en', device = 'desktop', depth = 100 } = req.body;
+    if (!keyword) return res.status(400).json({ error: 'keyword is required' });
+
+    const response = await axios.post(
+      `${DFORSEO_BASE}/serp/google/organic/live/advanced`,
+      [{ keyword, location_code, language_code, device, os: device === 'mobile' ? 'android' : 'windows', depth }],
+      { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
+    );
+
+    const task = response.data?.tasks?.[0];
+    console.log('SERP organic status:', task?.status_code, task?.status_message);
+    if (!task || task.status_code !== 20000) {
+      return res.status(400).json({ error: task?.status_message || 'DataForSEO error' });
+    }
+
+    const items = task.result?.[0]?.items || [];
+    const summary = {
+      total_results: task.result?.[0]?.se_results_count || 0,
+      keyword,
+      location_code,
+      device
+    };
+
+    // Categorize results
+    const organic = [];
+    const paid = [];
+    const maps = [];
+    const featured = [];
+    const snippets = [];
+    const related = [];
+
+    items.forEach(item => {
+      switch(item.type) {
+        case 'organic':
+          organic.push({
+            rank: item.rank_absolute,
+            title: item.title,
+            url: item.url,
+            domain: item.domain,
+            description: item.description,
+            breadcrumb: item.breadcrumb,
+            is_featured: item.is_featured_snippet || false,
+            etv: item.etv || 0 // estimated traffic value
+          });
+          break;
+        case 'paid':
+          paid.push({
+            rank: item.rank_absolute,
+            title: item.title,
+            url: item.url,
+            domain: item.domain,
+            description: item.description,
+            breadcrumb: item.breadcrumb
+          });
+          break;
+        case 'maps':
+        case 'local_pack':
+          maps.push({
+            rank: item.rank_absolute,
+            title: item.title,
+            url: item.url,
+            domain: item.domain,
+            rating: item.rating?.value,
+            reviews: item.rating?.votes_count
+          });
+          break;
+        case 'featured_snippet':
+          featured.push({
+            title: item.title,
+            url: item.url,
+            domain: item.domain,
+            description: item.description
+          });
+          break;
+        case 'people_also_ask':
+          if (item.items) {
+            item.items.forEach(q => snippets.push({ question: q.title, url: q.url }));
+          }
+          break;
+        case 'related_searches':
+          if (item.items) {
+            item.items.forEach(r => related.push(r.title || r));
+          }
+          break;
+      }
+    });
+
+    res.json({ success: true, summary, organic, paid, maps, featured, snippets, related });
+  } catch (err) {
+    console.error('[serp-organic error]', err.response?.data || err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`KeySpy proxy running on port ${PORT}`);
