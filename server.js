@@ -258,6 +258,95 @@ app.post('/api/serp-organic', async (req, res) => {
   }
 });
 
+// ── POST /api/ads-analyzer ────────────────────────────────────────────────────
+// mode: 'keyword' = live SERP search, 'domain' = domain history via DataForSEO Labs
+app.post('/api/ads-analyzer', async (req, res) => {
+  try {
+    const { query, location_code = 2826, language_code = 'en', device = 'desktop', mode = 'keyword' } = req.body;
+    if (!query) return res.status(400).json({ error: 'query is required' });
+
+    let ads = [];
+
+    if (mode === 'keyword') {
+      // Live SERP - search by keyword
+      const response = await axios.post(
+        `${DFORSEO_BASE}/serp/google/organic/live/advanced`,
+        [{ keyword: query, location_code, language_code, device, os: device === 'mobile' ? 'android' : 'windows', depth: 10 }],
+        { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
+      );
+      const task = response.data?.tasks?.[0];
+      console.log('Ads keyword status:', task?.status_code, task?.status_message);
+      if (!task || task.status_code !== 20000) {
+        return res.status(400).json({ error: task?.status_message || 'DataForSEO error' });
+      }
+      const items = task.result?.[0]?.items || [];
+      items.filter(i => i.type === 'paid').forEach(item => {
+        ads.push(parseAdItem(item));
+      });
+
+    } else if (mode === 'domain') {
+      // Domain history - get paid keywords for domain
+      const response = await axios.post(
+        `${DFORSEO_BASE}/dataforseo_labs/google/ranked_keywords/live`,
+        [{ target: query, location_code, language_code, limit: 20, filters: [['paid_etv', '>', 0]] }],
+        { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
+      );
+      const task = response.data?.tasks?.[0];
+      console.log('Domain ads status:', task?.status_code, task?.status_message);
+      if (!task || task.status_code !== 20000) {
+        return res.status(400).json({ error: task?.status_message || 'DataForSEO error' });
+      }
+      // Return keyword data for domain
+      const items = task.result?.[0]?.items || [];
+      const keywords = items.map(item => ({
+        keyword: item.keyword_data?.keyword,
+        position: item.ranked_serp_element?.serp_item?.rank_absolute,
+        title: item.ranked_serp_element?.serp_item?.title,
+        description: item.ranked_serp_element?.serp_item?.description,
+        url: item.ranked_serp_element?.serp_item?.url,
+        domain: query,
+        display_url: item.ranked_serp_element?.serp_item?.breadcrumb,
+        titles: item.ranked_serp_element?.serp_item?.title_lines || [],
+        sitelinks: item.ranked_serp_element?.serp_item?.sitelinks || [],
+        callouts: [],
+        promos: [],
+        paid_etv: item.keyword_data?.keyword_info?.cpc || 0,
+        volume: item.keyword_data?.keyword_info?.search_volume || 0
+      }));
+      return res.json({ success: true, data: { ads: keywords, mode, query, total: keywords.length } });
+    }
+
+    console.log('Ads found:', ads.length);
+    res.json({ success: true, data: { ads, mode, query, location_code, device, total: ads.length } });
+  } catch (err) {
+    console.error('[ads-analyzer error]', err.response?.data || err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+function parseAdItem(item) {
+  const sitelinks = (item.sitelinks || []).map(s => ({ title: s.title, description: s.description, url: s.url }));
+  const callouts = [], promos = [];
+  if (item.description_rows) {
+    item.description_rows.forEach(row => {
+      if (row.type === 'callout') callouts.push(row.text);
+      if (row.type === 'promotion') promos.push(row.text);
+    });
+  }
+  return {
+    position: item.rank_absolute,
+    title: item.title,
+    titles: item.title_lines || [item.title],
+    description: item.description,
+    description_lines: item.description_lines || [],
+    url: item.url,
+    display_url: item.breadcrumb || item.domain,
+    domain: item.domain,
+    sitelinks, callouts, promos,
+    rating: item.rating || null
+  };
+}
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`KeySpy proxy running on port ${PORT}`);
