@@ -30,6 +30,17 @@ function getTrend(monthly) {
   return 'stable';
 }
 
+function mapItem(item) {
+  return {
+    keyword: item.keyword,
+    volume: item.search_volume || 0,
+    cpc: item.cpc || 0,
+    competition: item.competition || 0,
+    competition_level: item.competition_level || 'UNKNOWN',
+    trend: item.monthly_searches ? getTrend(item.monthly_searches) : 'stable'
+  };
+}
+
 app.get('/', (req, res) => res.json({ status: 'ok' }));
 app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 
@@ -38,13 +49,16 @@ app.post('/api/keywords', async (req, res) => {
     const { keyword, location_code = 2826, language_code = 'en' } = req.body;
     if (!keyword) return res.status(400).json({ error: 'keyword is required' });
 
+    // Generate 50 keyword variations to bulk check volumes
+    const variations = generateVariations(keyword);
+    console.log(`Checking ${variations.length} keyword variations for: ${keyword}`);
+
     const response = await axios.post(
       `${DFORSEO_BASE}/keywords_data/google_ads/search_volume/live`,
-      [{ keywords: [keyword], location_code, language_code }],
+      [{ keywords: variations, location_code, language_code }],
       { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
     );
 
-    // Log full response for debugging
     const task = response.data?.tasks?.[0];
     console.log('Task status:', task?.status_code, task?.status_message);
     console.log('Result count:', task?.result?.length);
@@ -53,15 +67,10 @@ app.post('/api/keywords', async (req, res) => {
       return res.status(400).json({ error: task?.status_message || 'DataForSEO error', status_code: task?.status_code });
     }
 
-    // search_volume returns flat array of results
-    const results = (task.result || []).map(item => ({
-      keyword: item.keyword,
-      volume: item.search_volume || 0,
-      cpc: item.cpc || 0,
-      competition: item.competition || 0,
-      competition_level: item.competition_level || 'UNKNOWN',
-      trend: item.monthly_searches ? getTrend(item.monthly_searches) : 'stable'
-    }));
+    const results = (task.result || [])
+      .filter(item => item.search_volume > 0)
+      .sort((a, b) => (b.search_volume || 0) - (a.search_volume || 0))
+      .map(mapItem);
 
     console.log('Returning results:', results.length);
     res.json({ success: true, data: results });
@@ -71,6 +80,33 @@ app.post('/api/keywords', async (req, res) => {
     res.status(500).json({ error: err.message, details: err.response?.data });
   }
 });
+
+// Generate 50 keyword variations for iGaming
+function generateVariations(keyword) {
+  const kw = keyword.toLowerCase().trim();
+  const prefixes = ['best', 'top', 'free', 'real money', 'live', 'online', 'new', 'uk', 'legal', 'safe'];
+  const suffixes = ['bonus', 'games', 'sites', 'uk', '2024', '2025', 'no deposit', 'free spins', 'welcome bonus', 'review', 'app', 'mobile', 'deposit bonus', 'jackpot'];
+  const intents  = ['play', 'how to play', 'sign up', 'register', 'download', 'win', 'tips'];
+
+  const variations = new Set();
+  variations.add(kw);
+
+  // prefix + keyword
+  prefixes.forEach(p => variations.add(`${p} ${kw}`));
+  // keyword + suffix
+  suffixes.forEach(s => variations.add(`${kw} ${s}`));
+  // intent + keyword
+  intents.forEach(i => variations.add(`${i} ${kw}`));
+  // keyword split word combinations
+  const words = kw.split(' ');
+  if (words.length > 1) {
+    words.forEach(w => {
+      prefixes.slice(0, 5).forEach(p => variations.add(`${p} ${w}`));
+    });
+  }
+
+  return Array.from(variations).slice(0, 50);
+}
 
 app.post('/api/serp-ads', async (req, res) => {
   try {
