@@ -39,8 +39,8 @@ app.post('/api/keywords', async (req, res) => {
     if (!keyword) return res.status(400).json({ error: 'keyword is required' });
 
     const response = await axios.post(
-      `${DFORSEO_BASE}/keywords_data/google_ads/keywords_for_keywords/live`,
-      [{ keyword, location_code, language_code, limit: 20 }],
+      `${DFORSEO_BASE}/keywords_data/google_ads/search_volume/live`,
+      [{ keywords: [keyword], location_code, language_code }],
       { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
     );
 
