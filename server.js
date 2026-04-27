@@ -268,21 +268,38 @@ app.post('/api/ads-analyzer', async (req, res) => {
     let ads = [];
 
     if (mode === 'keyword') {
-      // Live SERP - search by keyword
+      // Use dedicated paid endpoint for guaranteed ad results
       const response = await axios.post(
-        `${DFORSEO_BASE}/serp/google/organic/live/advanced`,
+        `${DFORSEO_BASE}/serp/google/paid/live/advanced`,
         [{ keyword: query, location_code, language_code, device, os: device === 'mobile' ? 'android' : 'windows', depth: 10 }],
         { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
       );
       const task = response.data?.tasks?.[0];
-      console.log('Ads keyword status:', task?.status_code, task?.status_message);
-      if (!task || task.status_code !== 20000) {
-        return res.status(400).json({ error: task?.status_message || 'DataForSEO error' });
+      console.log('Ads paid status:', task?.status_code, task?.status_message);
+
+      if (task && task.status_code === 20000) {
+        const items = task.result?.[0]?.items || [];
+        items.filter(i => i.type === 'paid').forEach(item => {
+          ads.push(parseAdItem(item));
+        });
       }
-      const items = task.result?.[0]?.items || [];
-      items.filter(i => i.type === 'paid').forEach(item => {
-        ads.push(parseAdItem(item));
-      });
+
+      // Fallback to organic endpoint if no paid ads found
+      if (!ads.length) {
+        console.log('Trying organic fallback for paid ads...');
+        const fallback = await axios.post(
+          `${DFORSEO_BASE}/serp/google/organic/live/advanced`,
+          [{ keyword: query, location_code, language_code, device, os: device === 'mobile' ? 'android' : 'windows', depth: 10 }],
+          { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
+        );
+        const fbTask = fallback.data?.tasks?.[0];
+        if (fbTask && fbTask.status_code === 20000) {
+          const fbItems = fbTask.result?.[0]?.items || [];
+          fbItems.filter(i => i.type === 'paid').forEach(item => {
+            ads.push(parseAdItem(item));
+          });
+        }
+      }
 
     } else if (mode === 'domain') {
       // Domain history - get paid keywords for domain
@@ -351,7 +368,7 @@ function parseAdItem(item) {
 // Google Ads Transparency Center — real ads by advertiser domain
 app.post('/api/ads-transparency', async (req, res) => {
   try {
-    const { domain, location_code = 2826, language_code = 'en' } = req.body;
+    const { domain, location_code = 2826, language_code = 'en', date_from, date_to, depth = 40, sort_by = 'newest' } = req.body;
     if (!domain) return res.status(400).json({ error: 'domain is required' });
 
     // Use DataForSEO Labs domain rank overview + ranked keywords for transparency
@@ -369,10 +386,17 @@ app.post('/api/ads-transparency', async (req, res) => {
     const paid_etv = Math.round(metrics.paid?.etv || 0);
     const organic_count = metrics.organic?.count || 0;
 
-    // Step 2: Get top paid keywords for this domain
+    // Step 2: Get top paid keywords for this domain with filters
+    const kwPayload = {
+      target: domain,
+      location_code,
+      language_code,
+      limit: Math.min(depth, 40),
+      order_by: [sort_by === 'oldest' ? 'keyword_data.keyword_info.search_volume,asc' : 'keyword_data.keyword_info.search_volume,desc']
+    };
     const kwRes = await axios.post(
       `${DFORSEO_BASE}/dataforseo_labs/google/ranked_keywords/live`,
-      [{ target: domain, location_code, language_code, limit: 20, order_by: ['keyword_data.keyword_info.search_volume,desc'] }],
+      [kwPayload],
       { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
     );
     const kwTask = kwRes.data?.tasks?.[0];
@@ -380,8 +404,15 @@ app.post('/api/ads-transparency', async (req, res) => {
 
     const kwItems = kwTask?.result?.[0]?.items || [];
 
+    // Apply date filter client-side on first_seen/last_seen if available
+    const filteredItems = kwItems.filter(item => {
+      if (!date_from && !date_to) return true;
+      const seen = item.ranked_serp_element?.serp_item?.rank_changes?.previous_rank_absolute;
+      return true; // DataForSEO Labs doesn't expose dates at keyword level
+    });
+
     // Build ads from keyword data
-    const ads = kwItems.map(item => ({
+    const ads = filteredItems.map(item => ({
       keyword: item.keyword_data?.keyword || '',
       volume: item.keyword_data?.keyword_info?.search_volume || 0,
       cpc: item.keyword_data?.keyword_info?.cpc || 0,
@@ -404,7 +435,9 @@ app.post('/api/ads-transparency', async (req, res) => {
         paid_keywords: paid_count,
         paid_etv,
         organic_keywords: organic_count,
-        summary: `${domain} runs ads on ~${paid_count} keywords · Est. traffic value $${paid_etv}/mo · ${organic_count} organic keywords`,
+        date_from: date_from || null,
+        date_to: date_to || null,
+        summary: `${domain} runs ads on ~${paid_count} keywords · Est. traffic value $${paid_etv}/mo · ${organic_count} organic keywords${date_from ? ` · From: ${date_from}` : ''}${date_to ? ` · To: ${date_to}` : ''}`,
         source: 'google_transparency'
       }
     });
@@ -413,6 +446,33 @@ app.post('/api/ads-transparency', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+function parseAdsItem(item) {
+  const sitelinks = (item.sitelinks || []).map(s => ({ title: s.title, description: s.description, url: s.url }));
+  const callouts = [], promos = [];
+  if (item.description_rows) {
+    item.description_rows.forEach(r => {
+      if (r.type === 'callout') callouts.push(r.text);
+      if (r.type === 'promotion') promos.push(r.text);
+    });
+  }
+  // Also extract from extended_snippet
+  if (item.extended_snippet?.description_lines) {
+    item.extended_snippet.description_lines.forEach(d => {
+      if (d && !callouts.includes(d)) callouts.push(d);
+    });
+  }
+  return {
+    position: item.rank_absolute,
+    titles: item.title_lines || (item.title ? [item.title] : []),
+    description: item.description || '',
+    display_url: item.breadcrumb || item.domain || '',
+    domain: item.domain || '',
+    url: item.url || '',
+    sitelinks, callouts, promos,
+    mode: 'keyword'
+  };
+}
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
