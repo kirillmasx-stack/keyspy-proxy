@@ -164,31 +164,20 @@ app.post('/api/serp-organic', async (req, res) => {
     const { keyword, location_code = 2826, language_code = 'en', device = 'desktop', depth = 100 } = req.body;
     if (!keyword) return res.status(400).json({ error: 'keyword is required' });
 
-    // Run organic + paid requests in parallel
-    const [organicRes, paidRes] = await Promise.all([
-      axios.post(
-        `${DFORSEO_BASE}/serp/google/organic/live/advanced`,
-        [{ keyword, location_code, language_code, device, os: device === 'mobile' ? 'android' : 'windows', depth }],
-        { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
-      ),
-      axios.post(
-        `${DFORSEO_BASE}/serp/google/ads/live/advanced`,
-        [{ keyword, location_code, language_code, device, os: device === 'mobile' ? 'android' : 'windows', depth: 10 }],
-        { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
-      )
-    ]);
+    // Use regular endpoint - returns both organic + paid results together
+    const organicRes = await axios.post(
+      `${DFORSEO_BASE}/serp/google/organic/live/regular`,
+      [{ keyword, location_code, language_code, device, os: device === 'mobile' ? 'android' : 'windows', depth }],
+      { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
+    );
 
     const task = organicRes.data?.tasks?.[0];
-    const paidTask = paidRes.data?.tasks?.[0];
-    console.log('SERP organic status:', task?.status_code, task?.status_message);
-    console.log('SERP paid status:', paidTask?.status_code, paidTask?.status_message);
+    console.log('SERP status:', task?.status_code, task?.status_message);
     if (!task || task.status_code !== 20000) {
       return res.status(400).json({ error: task?.status_message || 'DataForSEO error' });
     }
 
     const items = task.result?.[0]?.items || [];
-    // Add paid items from separate ads endpoint
-    const paidItems = paidTask?.result?.[0]?.items || [];
     const summary = {
       total_results: task.result?.[0]?.se_results_count || 0,
       keyword,
@@ -257,20 +246,6 @@ app.post('/api/serp-organic', async (req, res) => {
             item.items.forEach(r => related.push(r.title || r));
           }
           break;
-      }
-    });
-
-    // Process paid ads from dedicated ads endpoint
-    paidItems.filter(i => i.type === 'paid').forEach(item => {
-      if (!paid.find(p => p.domain === item.domain)) {
-        paid.push({
-          rank: item.rank_absolute,
-          title: item.title,
-          url: item.url,
-          domain: item.domain,
-          description: item.description,
-          breadcrumb: item.breadcrumb
-        });
       }
     });
 
