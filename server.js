@@ -70,7 +70,19 @@ app.post('/api/keywords', async (req, res) => {
     const results = (task.result || [])
       .filter(item => item.search_volume > 0)
       .sort((a, b) => (b.search_volume || 0) - (a.search_volume || 0))
-      .map(mapItem);
+      .map(item => {
+        // competition comes as string: "LOW"/"MEDIUM"/"HIGH"
+        const compStr = (item.competition || '').toUpperCase();
+        const compNum = compStr === 'HIGH' ? 0.85 : compStr === 'MEDIUM' ? 0.5 : compStr === 'LOW' ? 0.15 : 0;
+        return {
+          keyword: item.keyword,
+          volume: item.search_volume || 0,
+          cpc: item.cpc || 0,
+          competition: compNum,
+          competition_level: compStr || 'LOW',
+          trend: item.monthly_searches ? getTrend(item.monthly_searches) : 'stable'
+        };
+      });
 
     console.log('Returning results:', results.length);
     if (results.length > 0) console.log('Sample item:', JSON.stringify(results[0]));
