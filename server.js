@@ -288,7 +288,7 @@ app.post('/api/ads-analyzer', async (req, res) => {
       // Domain history - get paid keywords for domain
       const response = await axios.post(
         `${DFORSEO_BASE}/dataforseo_labs/google/ranked_keywords/live`,
-        [{ target: query, location_code, language_code, limit: 20, filters: [['paid_etv', '>', 0]] }],
+        [{ target: query, location_code, language_code, limit: 20, order_by: ['keyword_data.keyword_info.search_volume,desc'] }],
         { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
       );
       const task = response.data?.tasks?.[0];
@@ -354,80 +354,60 @@ app.post('/api/ads-transparency', async (req, res) => {
     const { domain, location_code = 2826, language_code = 'en' } = req.body;
     if (!domain) return res.status(400).json({ error: 'domain is required' });
 
-    // Step 1: Find advertiser ID by domain
-    const searchRes = await axios.post(
-      `${DFORSEO_BASE}/serp/google/ads_search/task_post`,
-      [{ advertiser_domain: domain, location_code, language_code, depth: 10 }],
+    // Use DataForSEO Labs domain rank overview + ranked keywords for transparency
+    // Step 1: Get domain overview
+    const overviewRes = await axios.post(
+      `${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
+      [{ target: domain, location_code, language_code }],
       { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
     );
+    const overviewTask = overviewRes.data?.tasks?.[0];
+    console.log('Transparency overview status:', overviewTask?.status_code, overviewTask?.status_message);
 
-    const searchTask = searchRes.data?.tasks?.[0];
-    console.log('Transparency search status:', searchTask?.status_code, searchTask?.status_message);
+    const metrics = overviewTask?.result?.[0]?.metrics || {};
+    const paid_count = metrics.paid?.count || 0;
+    const paid_etv = Math.round(metrics.paid?.etv || 0);
+    const organic_count = metrics.organic?.count || 0;
 
-    if (!searchTask || searchTask.status_code !== 20000) {
-      // Fallback: try direct domain lookup via dataforseo labs
-      const labsRes = await axios.post(
-        `${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
-        [{ target: domain, location_code, language_code }],
-        { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
-      );
-      const labsTask = labsRes.data?.tasks?.[0];
-      console.log('Labs fallback status:', labsTask?.status_code, labsTask?.status_message);
-
-      if (!labsTask || labsTask.status_code !== 20000) {
-        return res.status(400).json({ error: searchTask?.status_message || 'Not found' });
-      }
-
-      const metrics = labsTask.result?.[0]?.metrics || {};
-      return res.json({
-        success: true,
-        data: {
-          domain,
-          source: 'dataforseo_labs',
-          paid_keywords: metrics.paid?.count || 0,
-          paid_etv: metrics.paid?.etv || 0,
-          paid_impressions_etv: metrics.paid?.impressions_etv || 0,
-          organic_keywords: metrics.organic?.count || 0,
-          ads: [],
-          summary: `Domain ${domain} has ${metrics.paid?.count || 0} paid keywords with estimated traffic value of $${metrics.paid?.etv || 0}`
-        }
-      });
-    }
-
-    const taskId = searchTask.id;
-
-    // Step 2: Wait and get results
-    await new Promise(r => setTimeout(r, 3000));
-
-    const resultRes = await axios.get(
-      `${DFORSEO_BASE}/serp/google/ads_search/task_get/advanced/${taskId}`,
-      { headers: { Authorization: getAuthHeader() } }
+    // Step 2: Get top paid keywords for this domain
+    const kwRes = await axios.post(
+      `${DFORSEO_BASE}/dataforseo_labs/google/ranked_keywords/live`,
+      [{ target: domain, location_code, language_code, limit: 20, order_by: ['keyword_data.keyword_info.search_volume,desc'] }],
+      { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
     );
+    const kwTask = kwRes.data?.tasks?.[0];
+    console.log('Transparency keywords status:', kwTask?.status_code, kwTask?.status_message);
 
-    const resultTask = resultRes.data?.tasks?.[0];
-    console.log('Transparency result status:', resultTask?.status_code, resultTask?.status_message);
+    const kwItems = kwTask?.result?.[0]?.items || [];
 
-    if (!resultTask || resultTask.status_code !== 20000) {
-      return res.status(400).json({ error: resultTask?.status_message || 'Result not ready' });
-    }
-
-    const items = resultTask.result?.[0]?.items || [];
-    const ads = items.map(item => ({
-      advertiser: item.advertiser_name || domain,
-      domain: item.domain || domain,
-      titles: item.title_lines || [item.title || ''],
-      description: item.description || '',
-      display_url: item.breadcrumb || domain,
-      url: item.url || '',
-      first_seen: item.first_seen,
-      last_seen: item.last_seen,
-      sitelinks: (item.sitelinks || []).map(s => ({ title: s.title, description: s.description })),
-      callouts: [],
-      promos: [],
+    // Build ads from keyword data
+    const ads = kwItems.map(item => ({
+      keyword: item.keyword_data?.keyword || '',
+      volume: item.keyword_data?.keyword_info?.search_volume || 0,
+      cpc: item.keyword_data?.keyword_info?.cpc || 0,
+      position: item.ranked_serp_element?.serp_item?.rank_absolute || 1,
+      titles: [item.ranked_serp_element?.serp_item?.title || domain].filter(Boolean),
+      description: item.ranked_serp_element?.serp_item?.description || '',
+      display_url: item.ranked_serp_element?.serp_item?.breadcrumb || domain,
+      domain: domain,
+      url: item.ranked_serp_element?.serp_item?.url || '',
+      sitelinks: [], callouts: [], promos: [],
       source: 'transparency'
     }));
 
-    res.json({ success: true, data: { domain, ads, total: ads.length, source: 'google_transparency' } });
+    res.json({
+      success: true,
+      data: {
+        domain,
+        ads,
+        total: ads.length,
+        paid_keywords: paid_count,
+        paid_etv,
+        organic_keywords: organic_count,
+        summary: `${domain} runs ads on ~${paid_count} keywords · Est. traffic value $${paid_etv}/mo · ${organic_count} organic keywords`,
+        source: 'google_transparency'
+      }
+    });
   } catch (err) {
     console.error('[ads-transparency error]', err.response?.data || err.message);
     res.status(500).json({ error: err.message });
