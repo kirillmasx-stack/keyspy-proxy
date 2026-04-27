@@ -247,7 +247,9 @@ app.post('/api/serp-organic', async (req, res) => {
       }
     });
 
-    res.json({ success: true, summary, organic, paid, maps, featured, snippets, related });
+    console.log('SERP organic:', organic.length, 'paid:', paid.length, 'maps:', maps.length);
+    console.log('SERP sample organic:', JSON.stringify(organic[0] || {}));
+    res.json({ success: true, data: { summary, organic, paid, maps, featured, snippets, related } });
   } catch (err) {
     console.error('[serp-organic error]', err.response?.data || err.message);
     res.status(500).json({ error: err.message });
