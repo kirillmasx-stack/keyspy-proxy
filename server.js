@@ -73,6 +73,7 @@ app.post('/api/keywords', async (req, res) => {
       .map(mapItem);
 
     console.log('Returning results:', results.length);
+    if (results.length > 0) console.log('Sample item:', JSON.stringify(results[0]));
     res.json({ success: true, data: results });
 
   } catch (err) {
