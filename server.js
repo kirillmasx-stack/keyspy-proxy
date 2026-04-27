@@ -127,7 +127,7 @@ app.post('/api/serp-ads', async (req, res) => {
     if (!keyword) return res.status(400).json({ error: 'keyword is required' });
 
     const response = await axios.post(
-      `${DFORSEO_BASE}/serp/google/ads/live/advanced`,
+      `${DFORSEO_BASE}/serp/google/paid/live/advanced`,
       [{ keyword, location_code, language_code, device, os: device === 'mobile' ? 'android' : 'windows', depth: 10 }],
       { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
     );
