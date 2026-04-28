@@ -48,7 +48,7 @@ app.post('/api/keywords', async (req, res) => {
   try {
     const { keyword, location_code = 2826, language_code = 'en', engine = 'google' } = req.body;
     if (!keyword) return res.status(400).json({ error: 'keyword is required' });
-    const se = engine === 'bing' ? 'bing' : 'google';
+    const se = engine === 'bing' ? 'bing' : 'google_ads';
     console.log('Keywords engine:', se);
 
     // Generate 50 keyword variations to bulk check volumes
@@ -56,7 +56,7 @@ app.post('/api/keywords', async (req, res) => {
     console.log(`Checking ${variations.length} keyword variations for: ${keyword}`);
 
     const response = await axios.post(
-      `${DFORSEO_BASE}/keywords_data/${se}_ads/search_volume/live`,
+      `${DFORSEO_BASE}/keywords_data/${se === 'bing' ? 'bing/search_volume/live' : 'google_ads/search_volume/live'}`,
       [{ keywords: variations, location_code, language_code }],
       { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
     );
