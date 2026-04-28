@@ -1162,6 +1162,113 @@ app.post('/api/meta-ads', async (req, res) => {
   }
 });
 
+// ── POST /api/site-audit ─────────────────────────────────────────────────────
+// Full domain SEO intelligence — traffic, keywords, backlinks, competitors
+app.post('/api/site-audit', async (req, res) => {
+  try {
+    const { domain, location_code = 2826, language_code = 'en' } = req.body;
+    if (!domain) return res.status(400).json({ error: 'domain is required' });
+
+    const target = domain.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    console.log('Site audit for:', target);
+
+    // Run all requests in parallel
+    const [overviewRes, keywordsRes, backlinksRes, competitorsRes, pagesRes] = await Promise.all([
+      // 1. Domain overview — traffic, keywords count, ETV
+      axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
+        [{ target, location_code, language_code }],
+        { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
+      ),
+      // 2. Top organic keywords
+      axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/ranked_keywords/live`,
+        [{ target, location_code, language_code, limit: 20, order_by: ['keyword_data.keyword_info.search_volume,desc'] }],
+        { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
+      ),
+      // 3. Backlinks overview
+      axios.post(`${DFORSEO_BASE}/backlinks/summary/live`,
+        [{ target, limit: 1 }],
+        { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
+      ),
+      // 4. Organic competitors
+      axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/competitors_domain/live`,
+        [{ target, location_code, language_code, limit: 10 }],
+        { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
+      ),
+      // 5. Top pages by traffic
+      axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_pages/live`,
+        [{ target, location_code, language_code, limit: 10, order_by: ['metrics.organic.etv,desc'] }],
+        { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
+      )
+    ]);
+
+    // Parse overview
+    const overview = overviewRes.data?.tasks?.[0]?.result?.[0]?.metrics || {};
+    const organic = overview.organic || {};
+    const paid = overview.paid || {};
+
+    // Parse keywords
+    const kwTask = keywordsRes.data?.tasks?.[0];
+    const keywords = (kwTask?.result?.[0]?.items || []).map(item => ({
+      keyword: item.keyword_data?.keyword || '',
+      position: item.ranked_serp_element?.serp_item?.rank_absolute || 0,
+      volume: item.keyword_data?.keyword_info?.search_volume || 0,
+      cpc: item.keyword_data?.keyword_info?.cpc || 0,
+      traffic: item.ranked_serp_element?.serp_item?.etv || 0,
+      url: item.ranked_serp_element?.serp_item?.url || ''
+    }));
+
+    // Parse backlinks
+    const blTask = backlinksRes.data?.tasks?.[0];
+    const backlinks = blTask?.result?.[0] || {};
+
+    // Parse competitors
+    const compTask = competitorsRes.data?.tasks?.[0];
+    const competitors = (compTask?.result?.[0]?.items || []).map(item => ({
+      domain: item.domain || '',
+      common_keywords: item.intersections || 0,
+      organic_keywords: item.metrics?.organic?.count || 0,
+      organic_traffic: item.metrics?.organic?.etv || 0
+    }));
+
+    // Parse pages
+    const pagesTask = pagesRes.data?.tasks?.[0];
+    const pages = (pagesTask?.result?.[0]?.items || []).map(item => ({
+      url: item.url || '',
+      keywords: item.metrics?.organic?.count || 0,
+      traffic: item.metrics?.organic?.etv || 0,
+      impressions: item.metrics?.organic?.impressions_etv || 0
+    }));
+
+    console.log('Site audit complete - keywords:', keywords.length, 'competitors:', competitors.length);
+
+    res.json({
+      success: true,
+      data: {
+        domain: target,
+        overview: {
+          organic_keywords: organic.count || 0,
+          organic_traffic: Math.round(organic.etv || 0),
+          organic_traffic_value: Math.round(organic.etv_cost || 0),
+          paid_keywords: paid.count || 0,
+          paid_traffic: Math.round(paid.etv || 0)
+        },
+        backlinks: {
+          total: backlinks.total_count || 0,
+          referring_domains: backlinks.referring_domains || 0,
+          rank: backlinks.rank || 0,
+          dofollow: backlinks.referring_domains_dofollow || 0
+        },
+        keywords,
+        competitors,
+        pages
+      }
+    });
+  } catch (err) {
+    console.error('[site-audit error]', err.response?.data || err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`KeySpy proxy running on port ${PORT}`);
