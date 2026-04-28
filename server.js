@@ -893,42 +893,44 @@ app.post('/api/oxylabs-ppc', async (req, res) => {
       return res.status(400).json({ error: 'Oxylabs error: ' + result?.status_code });
     }
 
-    const content = result.content;
+    // Oxylabs returns content as string (HTML) or parsed object
+    let parsedContent = result.content;
+    if (typeof parsedContent === 'string') {
+      try { parsedContent = JSON.parse(parsedContent); } catch(e) {}
+    }
 
-    // Log full structure to debug
-    console.log('Oxylabs content keys:', Object.keys(content || {}));
-    console.log('Oxylabs results keys:', Object.keys(content?.results || {}));
-    console.log('Oxylabs paid:', JSON.stringify(content?.results?.paid?.slice(0,1) || []));
-    console.log('Oxylabs organic count:', content?.results?.organic?.length || 0);
+    // Get results from parsed content
+    const results_data = parsedContent?.results || parsedContent || {};
+    console.log('Oxylabs results keys:', Object.keys(results_data));
 
-    // Log all available ad types
-    console.log('paid:', content?.results?.paid?.length || 0);
-    console.log('pla:', content?.results?.pla?.length || 0);
-    console.log('top_ads:', content?.results?.top_ads?.length || 0);
+    const paidAds = results_data?.paid || [];
+    const plaAds = results_data?.pla || [];
+    console.log('paid:', paidAds.length, 'pla:', plaAds.length);
 
-    const firstAd = content?.results?.paid?.[0] || content?.results?.pla?.[0];
-    if (firstAd) console.log('First ad structure:', JSON.stringify(firstAd));
+    if (paidAds[0]) console.log('First paid:', JSON.stringify(paidAds[0]).slice(0, 200));
 
-    // Combine all ad types: paid text ads + PLA (shopping) ads
-    const allAds = [
-      ...(content?.results?.paid || []),
-      ...(content?.results?.pla || []),
-      ...(content?.results?.top_ads || [])
-    ];
+    const allAds = [...paidAds, ...plaAds];
 
     const ads = allAds.map((ad, idx) => {
       let domain = '';
       try { domain = ad.url ? new URL(ad.url).hostname.replace('www.', '') : ''; } catch(e) {}
-      const sitelinks = Array.isArray(ad.sitelinks) ? ad.sitelinks.map(s => ({ title: s.title || s, url: s.url || s.link || '' })) :
-                        Array.isArray(ad.site_links) ? ad.site_links.map(s => ({ title: s.title || s, url: s.url || '' })) : [];
+
+      // Sitelinks can be inline array or object with inline key
+      let sitelinks = [];
+      if (Array.isArray(ad.sitelinks)) {
+        sitelinks = ad.sitelinks.map(s => ({ title: s.title || '', url: s.url || s.link || '' }));
+      } else if (ad.sitelinks?.inline) {
+        sitelinks = ad.sitelinks.inline.map(s => ({ title: s.title || '', url: s.url || '' }));
+      }
+
       return {
         position: ad.pos || ad.position || idx + 1,
-        title: ad.title || ad.name || '',
+        title: ad.title || '',
         titles: ad.title ? [ad.title] : [],
         description: ad.desc || ad.description || '',
-        display_url: ad.display_url || ad.displayed_url || ad.url || '',
+        display_url: ad.url_shown || ad.display_url || domain,
         domain,
-        url: ad.url || ad.link || '',
+        url: ad.url || '',
         sitelinks,
         callouts: Array.isArray(ad.callouts) ? ad.callouts : [],
         promos: [],
