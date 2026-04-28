@@ -627,28 +627,42 @@ app.post('/api/ppc-overview', async (req, res) => {
 // SerpApi — guaranteed paid ads from Google SERP
 app.post('/api/serpapi-ads', async (req, res) => {
   try {
-    const { keyword, location = 'United Kingdom', device = 'desktop', hl = 'en', gl = 'uk' } = req.body;
+    const { keyword, device = 'desktop', hl = 'en', gl = 'uk' } = req.body;
     if (!keyword) return res.status(400).json({ error: 'keyword is required' });
 
     const SERPAPI_KEY = process.env.SERPAPI_KEY;
     if (!SERPAPI_KEY) return res.status(400).json({ error: 'SERPAPI_KEY not set in env vars' });
 
+    // Map gl to correct google domain
+    const googleDomains = {
+      'uk': 'google.co.uk', 'us': 'google.com', 'de': 'google.de',
+      'fr': 'google.fr', 'it': 'google.it', 'es': 'google.es',
+      'ca': 'google.ca', 'au': 'google.com.au', 'nl': 'google.nl',
+      'se': 'google.se', 'no': 'google.no', 'dk': 'google.dk',
+      'fi': 'google.fi', 'pl': 'google.pl', 'br': 'google.com.br',
+      'in': 'google.co.in', 'ae': 'google.ae', 'ua': 'google.com.ua'
+    };
+    const google_domain = googleDomains[gl] || 'google.com';
+
     const params = new URLSearchParams({
       engine: 'google',
       q: keyword,
-      location,
       hl,
       gl,
+      google_domain,
       device,
       num: '10',
       api_key: SERPAPI_KEY
     });
 
+    console.log('SerpApi request:', keyword, gl, google_domain, device);
     const response = await axios.get(`https://serpapi.com/search.json?${params}`, { timeout: 30000 });
     const data = response.data;
 
     console.log('SerpApi status:', data.search_metadata?.status);
     console.log('SerpApi ads count:', data.ads?.length || 0);
+    console.log('SerpApi organic count:', data.organic_results?.length || 0);
+    if (data.error) console.log('SerpApi error:', data.error);
 
     // Extract paid ads
     const ads = (data.ads || []).map((ad, idx) => ({
@@ -698,27 +712,39 @@ app.post('/api/serpapi-ads', async (req, res) => {
 // SerpApi — PPC overview with screenshots
 app.post('/api/serpapi-ppc', async (req, res) => {
   try {
-    const { keyword, location = 'United Kingdom', device = 'desktop', hl = 'en', gl = 'uk' } = req.body;
+    const { keyword, device = 'desktop', hl = 'en', gl = 'uk' } = req.body;
     if (!keyword) return res.status(400).json({ error: 'keyword is required' });
 
     const SERPAPI_KEY = process.env.SERPAPI_KEY;
     if (!SERPAPI_KEY) return res.status(400).json({ error: 'SERPAPI_KEY not set in env vars' });
 
+    const googleDomainsPpc = {
+      'uk': 'google.co.uk', 'us': 'google.com', 'de': 'google.de',
+      'fr': 'google.fr', 'it': 'google.it', 'es': 'google.es',
+      'ca': 'google.ca', 'au': 'google.com.au', 'nl': 'google.nl',
+      'se': 'google.se', 'br': 'google.com.br', 'in': 'google.co.in',
+      'ae': 'google.ae', 'ua': 'google.com.ua'
+    };
+    const google_domain_ppc = googleDomainsPpc[gl] || 'google.com';
+
     const params = new URLSearchParams({
       engine: 'google',
       q: keyword,
-      location,
       hl,
       gl,
+      google_domain: google_domain_ppc,
       device,
       num: '10',
       api_key: SERPAPI_KEY
     });
 
+    console.log('SerpApi PPC request:', keyword, gl, google_domain_ppc, device);
     const response = await axios.get(`https://serpapi.com/search.json?${params}`, { timeout: 30000 });
     const data = response.data;
 
     console.log('SerpApi PPC ads:', data.ads?.length || 0);
+    console.log('SerpApi PPC organic:', data.organic_results?.length || 0);
+    if (data.error) console.log('SerpApi PPC error:', data.error);
 
     const ads = (data.ads || []).map((ad, idx) => ({
       position: ad.position || idx + 1,
