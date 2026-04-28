@@ -901,12 +901,22 @@ app.post('/api/oxylabs-ppc', async (req, res) => {
     console.log('Oxylabs paid:', JSON.stringify(content?.results?.paid?.slice(0,1) || []));
     console.log('Oxylabs organic count:', content?.results?.organic?.length || 0);
 
-    // Log first ad structure
-    const firstAd = content?.results?.paid?.[0];
+    // Log all available ad types
+    console.log('paid:', content?.results?.paid?.length || 0);
+    console.log('pla:', content?.results?.pla?.length || 0);
+    console.log('top_ads:', content?.results?.top_ads?.length || 0);
+
+    const firstAd = content?.results?.paid?.[0] || content?.results?.pla?.[0];
     if (firstAd) console.log('First ad structure:', JSON.stringify(firstAd));
 
-    // Extract paid ads - handle different field structures
-    const ads = (content?.results?.paid || []).map((ad, idx) => {
+    // Combine all ad types: paid text ads + PLA (shopping) ads
+    const allAds = [
+      ...(content?.results?.paid || []),
+      ...(content?.results?.pla || []),
+      ...(content?.results?.top_ads || [])
+    ];
+
+    const ads = allAds.map((ad, idx) => {
       let domain = '';
       try { domain = ad.url ? new URL(ad.url).hostname.replace('www.', '') : ''; } catch(e) {}
       const sitelinks = Array.isArray(ad.sitelinks) ? ad.sitelinks.map(s => ({ title: s.title || s, url: s.url || s.link || '' })) :
