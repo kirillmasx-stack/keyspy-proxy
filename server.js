@@ -843,6 +843,116 @@ app.post('/api/serpapi-ppc', async (req, res) => {
   }
 });
 
+// ── POST /api/oxylabs-ppc ─────────────────────────────────────────────────────
+// Oxylabs Web Scraper API — guaranteed Google Ads results with residential proxies
+app.post('/api/oxylabs-ppc', async (req, res) => {
+  try {
+    const { keyword, gl = 'uk', hl = 'en', device = 'desktop' } = req.body;
+    if (!keyword) return res.status(400).json({ error: 'keyword is required' });
+
+    const OXYLABS_USER = process.env.OXYLABS_USER;
+    const OXYLABS_PASS = process.env.OXYLABS_PASS;
+    if (!OXYLABS_USER || !OXYLABS_PASS) {
+      return res.status(400).json({ error: 'OXYLABS_USER or OXYLABS_PASS not set' });
+    }
+
+    // Oxylabs google_search target — specialized for ads
+    const payload = {
+      source: 'google_search',
+      query: keyword,
+      domain: gl === 'uk' ? 'co.uk' : gl === 'au' ? 'com.au' : gl === 'ca' ? 'ca' : 'com',
+      geo_location: gl === 'uk' ? 'United Kingdom' : gl === 'us' ? 'United States' :
+                    gl === 'de' ? 'Germany' : gl === 'fr' ? 'France' :
+                    gl === 'it' ? 'Italy' : gl === 'es' ? 'Spain' :
+                    gl === 'ca' ? 'Canada' : gl === 'au' ? 'Australia' :
+                    gl === 'nl' ? 'Netherlands' : gl === 'se' ? 'Sweden' :
+                    gl === 'br' ? 'Brazil' : gl === 'in' ? 'India' :
+                    gl === 'ae' ? 'United Arab Emirates' : gl === 'ua' ? 'Ukraine' : 'United Kingdom',
+      locale: hl,
+      device_type: device === 'mobile' ? 'mobile' : 'desktop',
+      pages: 1,
+      parse: true
+    };
+
+    console.log('Oxylabs PPC request:', keyword, payload.geo_location, device);
+
+    const response = await axios.post(
+      'https://realtime.oxylabs.io/v1/queries',
+      payload,
+      {
+        auth: { username: OXYLABS_USER, password: OXYLABS_PASS },
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 30000
+      }
+    );
+
+    const result = response.data?.results?.[0];
+    console.log('Oxylabs status:', result?.status_code);
+
+    if (!result || result.status_code !== 200) {
+      return res.status(400).json({ error: 'Oxylabs error: ' + result?.status_code });
+    }
+
+    const content = result.content;
+
+    // Extract paid ads from parsed content
+    const ads = (content?.results?.paid || []).map((ad, idx) => ({
+      position: ad.pos || idx + 1,
+      title: ad.title || '',
+      titles: ad.title ? [ad.title] : [],
+      description: ad.desc || '',
+      display_url: ad.display_url || ad.url || '',
+      domain: ad.url ? new URL(ad.url).hostname.replace('www.', '') : '',
+      url: ad.url || '',
+      sitelinks: (ad.sitelinks || []).map(s => ({ title: s.title, url: s.url })),
+      callouts: ad.callouts || [],
+      promos: [],
+      screenshot: null,
+      source: 'oxylabs'
+    }));
+
+    console.log('Oxylabs ads found:', ads.length);
+
+    // Take screenshots via DataForSEO for landing pages
+    if (ads.length > 0) {
+      await Promise.all(ads.slice(0, 4).map(async ad => {
+        try {
+          if (!ad.url) return;
+          const ssRes = await axios.post(
+            `${DFORSEO_BASE}/on_page/screenshot`,
+            [{ url: ad.url, full_page_screenshot: false, browser_preset: device === 'mobile' ? 'mobile' : 'desktop', load_resources: false, enable_javascript: true }],
+            { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
+          );
+          const ssTask = ssRes.data?.tasks?.[0];
+          if (ssTask?.status_code === 20000) {
+            const r = ssTask.result?.[0];
+            if (r?.items?.[0]?.screenshot_png) {
+              ad.screenshot = `data:image/png;base64,${r.items[0].screenshot_png}`;
+            }
+          }
+        } catch(e) {
+          console.log('Screenshot error:', e.message);
+        }
+      }));
+    }
+
+    res.json({
+      success: true,
+      data: {
+        ads,
+        keyword,
+        geo: payload.geo_location,
+        device,
+        total: ads.length,
+        screenshots: ads.filter(a => a.screenshot).length
+      }
+    });
+  } catch (err) {
+    console.error('[oxylabs-ppc error]', err.response?.data || err.message);
+    res.status(500).json({ error: err.response?.data?.error || err.message });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`KeySpy proxy running on port ${PORT}`);
