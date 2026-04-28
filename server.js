@@ -7,10 +7,17 @@ app.use(express.json());
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Max-Age', '86400');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(204);
+    return;
+  }
   next();
 });
+
+app.get('/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }));
+app.get('/', (req, res) => res.json({ status: 'KeySpy proxy running' }));
 
 const DFORSEO_BASE = 'https://api.dataforseo.com/v3';
 
@@ -52,13 +59,15 @@ app.post('/api/keywords', async (req, res) => {
     console.log('Keywords engine:', se);
 
     // Generate 50 keyword variations to bulk check volumes
-    const variations = generateVariations(keyword);
-    console.log(`Checking ${variations.length} keyword variations for: ${keyword}`);
+    // Bing is slower — use fewer variations
+    const allVariations = generateVariations(keyword);
+    const variations = se === 'bing' ? allVariations.slice(0, 20) : allVariations;
+    console.log(`Checking ${variations.length} keyword variations for: ${keyword} [${se}]`);
 
     const response = await axios.post(
       `${DFORSEO_BASE}/keywords_data/${se === 'bing' ? 'bing/search_volume/live' : 'google_ads/search_volume/live'}`,
       [{ keywords: variations, location_code, language_code }],
-      { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
+      { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' }, timeout: 55000 }
     );
 
     const task = response.data?.tasks?.[0];
