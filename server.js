@@ -858,7 +858,7 @@ app.post('/api/oxylabs-ppc', async (req, res) => {
 
     // Oxylabs google_search target — specialized for ads
     const payload = {
-      source: 'google_ads',
+      source: 'google_search',
       query: keyword,
       domain: gl === 'uk' ? 'co.uk' : gl === 'au' ? 'com.au' : gl === 'ca' ? 'ca' : 'com',
       geo_location: gl === 'uk' ? 'United Kingdom' : gl === 'us' ? 'United States' :
