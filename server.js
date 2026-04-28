@@ -895,6 +895,12 @@ app.post('/api/oxylabs-ppc', async (req, res) => {
 
     const content = result.content;
 
+    // Log full structure to debug
+    console.log('Oxylabs content keys:', Object.keys(content || {}));
+    console.log('Oxylabs results keys:', Object.keys(content?.results || {}));
+    console.log('Oxylabs paid:', JSON.stringify(content?.results?.paid?.slice(0,1) || []));
+    console.log('Oxylabs organic count:', content?.results?.organic?.length || 0);
+
     // Extract paid ads from parsed content
     const ads = (content?.results?.paid || []).map((ad, idx) => ({
       position: ad.pos || idx + 1,
