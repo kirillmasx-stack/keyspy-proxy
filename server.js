@@ -888,6 +888,15 @@ app.post('/api/oxylabs-ppc', async (req, res) => {
 
     const result = response.data?.results?.[0];
     console.log('Oxylabs status:', result?.status_code);
+    console.log('Oxylabs response keys:', Object.keys(response.data || {}));
+    console.log('Oxylabs result keys:', Object.keys(result || {}));
+    console.log('Oxylabs content type:', typeof result?.content);
+    
+    if (typeof result?.content === 'object') {
+      console.log('Content object keys:', Object.keys(result.content || {}));
+    } else if (typeof result?.content === 'string') {
+      console.log('Content string preview:', result.content.slice(0, 200));
+    }
 
     if (!result || result.status_code !== 200) {
       return res.status(400).json({ error: 'Oxylabs error: ' + result?.status_code });
@@ -896,10 +905,12 @@ app.post('/api/oxylabs-ppc', async (req, res) => {
     // Oxylabs returns content as string (HTML) or parsed object
     let parsedContent = result.content;
     if (typeof parsedContent === 'string') {
-      try { parsedContent = JSON.parse(parsedContent); } catch(e) {}
+      try { parsedContent = JSON.parse(parsedContent); } catch(e) {
+        console.log('Could not parse content as JSON');
+      }
     }
 
-    // Get results from parsed content
+    // Get results - try multiple paths
     const results_data = parsedContent?.results || parsedContent || {};
     console.log('Oxylabs results keys:', Object.keys(results_data));
 
