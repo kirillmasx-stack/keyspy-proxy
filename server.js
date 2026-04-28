@@ -54,7 +54,7 @@ app.post('/api/keywords', async (req, res) => {
     console.log(`Checking ${variations.length} keyword variations for: ${keyword}`);
 
     const response = await axios.post(
-      `${DFORSEO_BASE}/keywords_data/google_ads/search_volume/live`,
+      `${DFORSEO_BASE}/keywords_data/${se}_ads/search_volume/live`,
       [{ keywords: variations, location_code, language_code }],
       { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
     );
@@ -1041,51 +1041,59 @@ app.post('/api/meta-ads', async (req, res) => {
 
     if (!query) return res.status(400).json({ error: 'query is required' });
 
+    // Try official API first, fallback to public endpoint
     const META_TOKEN = process.env.META_ADS_TOKEN;
-    if (!META_TOKEN) return res.status(400).json({ error: 'META_ADS_TOKEN not set in env vars' });
 
-    // Build Meta Ads Library API request
-    const params = new URLSearchParams({
-      access_token: META_TOKEN,
-      ad_type: 'ALL',
-      limit: Math.min(limit, 50),
-      fields: 'id,ad_creative_bodies,ad_creative_link_captions,ad_creative_link_descriptions,ad_creative_link_titles,ad_delivery_start_time,ad_delivery_stop_time,ad_snapshot_url,currency,demographic_distribution,delivery_by_region,estimated_audience_size,impressions,page_id,page_name,publisher_platforms,spend,languages'
-    });
+    let data;
+    if (META_TOKEN) {
+      // Official Graph API
+      const params = new URLSearchParams({
+        access_token: META_TOKEN,
+        ad_type: 'ALL',
+        limit: Math.min(limit, 50),
+        fields: 'id,ad_creative_bodies,ad_creative_link_captions,ad_creative_link_descriptions,ad_creative_link_titles,ad_delivery_start_time,ad_delivery_stop_time,ad_snapshot_url,currency,estimated_audience_size,impressions,page_id,page_name,publisher_platforms,spend,languages',
+        search_terms: query,
+        ad_reached_countries: country,
+        ad_active_status: status === 'all' ? 'ALL' : status.toUpperCase()
+      });
+      if (platform !== 'all') params.append('publisher_platforms', platform);
+      if (media_type !== 'all') params.append('media_type', media_type.toUpperCase());
 
-    // Filter by status
-    if (status !== 'all') {
-      params.append('ad_active_status', status.toUpperCase());
-    }
-
-    // Filter by country
-    if (country) params.append('ad_reached_countries', country);
-
-    // Filter by platform
-    if (platform !== 'all') {
-      params.append('publisher_platforms', platform);
-    }
-
-    // Filter by media type
-    if (media_type !== 'all') {
-      params.append('media_type', media_type.toUpperCase());
-    }
-
-    // Search by keyword or domain
-    if (mode === 'domain') {
-      params.append('search_page_ids', '');
-      params.append('search_terms', query);
+      console.log('Meta Ads (official) request:', query, country);
+      const response = await axios.get(
+        `https://graph.facebook.com/v19.0/ads_archive?${params}`,
+        { timeout: 15000 }
+      );
+      data = response.data;
     } else {
-      params.append('search_terms', query);
+      // Public Meta Ads Library endpoint (no token needed)
+      const params = new URLSearchParams({
+        ad_type: 'ALL',
+        active_status: status === 'all' ? 'ALL' : status.toUpperCase(),
+        countries: country,
+        q: query,
+        limit: Math.min(limit, 30)
+      });
+      if (platform !== 'all') params.append('publisher_platforms[]', platform);
+
+      console.log('Meta Ads (public) request:', query, country);
+      const response = await axios.get(
+        `https://www.facebook.com/ads/library/async/search_ads/?${params}`,
+        {
+          timeout: 15000,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://www.facebook.com/ads/library/'
+          }
+        }
+      );
+      // Public endpoint returns different structure
+      const raw = response.data;
+      data = { data: raw?.payload?.results || raw?.data || [] };
     }
 
-    console.log('Meta Ads request:', query, country, platform, status);
-
-    const response = await axios.get(
-      `https://graph.facebook.com/v19.0/ads_archive?${params}`,
-      { timeout: 15000 }
-    );
-
-    const data = response.data;
     console.log('Meta Ads found:', data.data?.length || 0);
 
     const ads = (data.data || []).map(ad => ({
