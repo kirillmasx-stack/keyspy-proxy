@@ -901,21 +901,31 @@ app.post('/api/oxylabs-ppc', async (req, res) => {
     console.log('Oxylabs paid:', JSON.stringify(content?.results?.paid?.slice(0,1) || []));
     console.log('Oxylabs organic count:', content?.results?.organic?.length || 0);
 
-    // Extract paid ads from parsed content
-    const ads = (content?.results?.paid || []).map((ad, idx) => ({
-      position: ad.pos || idx + 1,
-      title: ad.title || '',
-      titles: ad.title ? [ad.title] : [],
-      description: ad.desc || '',
-      display_url: ad.display_url || ad.url || '',
-      domain: ad.url ? new URL(ad.url).hostname.replace('www.', '') : '',
-      url: ad.url || '',
-      sitelinks: (ad.sitelinks || []).map(s => ({ title: s.title, url: s.url })),
-      callouts: ad.callouts || [],
-      promos: [],
-      screenshot: null,
-      source: 'oxylabs'
-    }));
+    // Log first ad structure
+    const firstAd = content?.results?.paid?.[0];
+    if (firstAd) console.log('First ad structure:', JSON.stringify(firstAd));
+
+    // Extract paid ads - handle different field structures
+    const ads = (content?.results?.paid || []).map((ad, idx) => {
+      let domain = '';
+      try { domain = ad.url ? new URL(ad.url).hostname.replace('www.', '') : ''; } catch(e) {}
+      const sitelinks = Array.isArray(ad.sitelinks) ? ad.sitelinks.map(s => ({ title: s.title || s, url: s.url || s.link || '' })) :
+                        Array.isArray(ad.site_links) ? ad.site_links.map(s => ({ title: s.title || s, url: s.url || '' })) : [];
+      return {
+        position: ad.pos || ad.position || idx + 1,
+        title: ad.title || ad.name || '',
+        titles: ad.title ? [ad.title] : [],
+        description: ad.desc || ad.description || '',
+        display_url: ad.display_url || ad.displayed_url || ad.url || '',
+        domain,
+        url: ad.url || ad.link || '',
+        sitelinks,
+        callouts: Array.isArray(ad.callouts) ? ad.callouts : [],
+        promos: [],
+        screenshot: null,
+        source: 'oxylabs'
+      };
+    });
 
     console.log('Oxylabs ads found:', ads.length);
 
