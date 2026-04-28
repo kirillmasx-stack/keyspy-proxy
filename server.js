@@ -858,7 +858,7 @@ app.post('/api/oxylabs-ppc', async (req, res) => {
 
     // Oxylabs google_search target — specialized for ads
     const payload = {
-      source: 'google_search',
+      source: 'google_ads',
       query: keyword,
       domain: gl === 'uk' ? 'co.uk' : gl === 'au' ? 'com.au' : gl === 'ca' ? 'ca' : 'com',
       geo_location: gl === 'uk' ? 'United Kingdom' : gl === 'us' ? 'United States' :
@@ -886,7 +886,15 @@ app.post('/api/oxylabs-ppc', async (req, res) => {
       }
     );
 
-    const result = response.data?.results?.[0];
+    // Log raw response for debugging
+    const rawData = response.data;
+    const result = rawData?.results?.[0];
+    
+    // Try to get paid from multiple paths
+    const contentObj = result?.content;
+    const directPaid = contentObj?.results?.paid;
+    console.log('Direct paid path length:', directPaid?.length || 0);
+    console.log('Full content sample:', JSON.stringify(contentObj?.results?.paid?.slice(0,1) || 'empty'));
     console.log('Oxylabs status:', result?.status_code);
     console.log('Oxylabs response keys:', Object.keys(response.data || {}));
     console.log('Oxylabs result keys:', Object.keys(result || {}));
@@ -902,16 +910,26 @@ app.post('/api/oxylabs-ppc', async (req, res) => {
       return res.status(400).json({ error: 'Oxylabs error: ' + result?.status_code });
     }
 
-    // Oxylabs returns content as string (HTML) or parsed object
-    let parsedContent = result.content;
-    if (typeof parsedContent === 'string') {
-      try { parsedContent = JSON.parse(parsedContent); } catch(e) {
-        console.log('Could not parse content as JSON');
-      }
+    // Handle both response formats:
+    // Format 1: result.content.results.paid (realtime API)
+    // Format 2: data.results.paid (playground / direct)
+    let results_data = {};
+    
+    const contentObj = result?.content;
+    if (contentObj?.results?.paid !== undefined) {
+      // Format 1: nested in content
+      results_data = contentObj.results;
+      console.log('Using Format 1 (content.results)');
+    } else if (rawData?.results?.paid !== undefined) {
+      // Format 2: direct results
+      results_data = rawData.results;
+      console.log('Using Format 2 (direct results)');
+    } else if (typeof contentObj === 'object' && contentObj?.paid !== undefined) {
+      // Format 3: content is already results
+      results_data = contentObj;
+      console.log('Using Format 3 (content direct)');
     }
-
-    // Get results - try multiple paths
-    const results_data = parsedContent?.results || parsedContent || {};
+    
     console.log('Oxylabs results keys:', Object.keys(results_data));
 
     const paidAds = results_data?.paid || [];
