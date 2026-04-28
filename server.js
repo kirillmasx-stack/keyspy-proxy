@@ -1173,33 +1173,33 @@ app.post('/api/site-audit', async (req, res) => {
     console.log('Site audit for:', target);
 
     // Run all requests in parallel
+    const headers = { Authorization: getAuthHeader(), 'Content-Type': 'application/json' };
+    const safe = async (fn) => { try { return await fn(); } catch(e) { console.log('Partial error:', e.message); return null; } };
+
     const [overviewRes, keywordsRes, backlinksRes, competitorsRes, pagesRes] = await Promise.all([
-      // 1. Domain overview — traffic, keywords count, ETV
-      axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
-        [{ target, location_code, language_code }],
-        { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
-      ),
+      // 1. Domain overview
+      safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
+        [{ target, location_code, language_code }], { headers })),
       // 2. Top organic keywords
-      axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/ranked_keywords/live`,
-        [{ target, location_code, language_code, limit: 20, order_by: ['keyword_data.keyword_info.search_volume,desc'] }],
-        { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
-      ),
+      safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/ranked_keywords/live`,
+        [{ target, location_code, language_code, limit: 20, order_by: ['keyword_data.keyword_info.search_volume,desc'] }], { headers })),
       // 3. Backlinks overview
-      axios.post(`${DFORSEO_BASE}/backlinks/summary/live`,
-        [{ target, limit: 1 }],
-        { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
-      ),
+      safe(() => axios.post(`${DFORSEO_BASE}/backlinks/summary/live`,
+        [{ target, limit: 1 }], { headers })),
       // 4. Organic competitors
-      axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/competitors_domain/live`,
-        [{ target, location_code, language_code, limit: 10 }],
-        { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
-      ),
+      safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/competitors_domain/live`,
+        [{ target, location_code, language_code, limit: 10 }], { headers })),
       // 5. Top pages by traffic
-      axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_pages/live`,
-        [{ target, location_code, language_code, limit: 10, order_by: ['metrics.organic.etv,desc'] }],
-        { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
-      )
+      safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_pages_summary/live`,
+        [{ target, location_code, language_code, limit: 10, order_by: ['metrics.organic.etv,desc'] }], { headers }))
     ]);
+
+    // Log statuses for debugging
+    console.log('Overview:', overviewRes?.data?.tasks?.[0]?.status_code);
+    console.log('Keywords:', keywordsRes?.data?.tasks?.[0]?.status_code);
+    console.log('Backlinks:', backlinksRes?.data?.tasks?.[0]?.status_code);
+    console.log('Competitors:', competitorsRes?.data?.tasks?.[0]?.status_code);
+    console.log('Pages:', pagesRes?.data?.tasks?.[0]?.status_code);
 
     // Parse overview
     const overview = overviewRes.data?.tasks?.[0]?.result?.[0]?.metrics || {};
