@@ -776,17 +776,15 @@ app.post('/api/serpapi-ppc', async (req, res) => {
     const params = new URLSearchParams({
       engine: 'google',
       q: keyword,
-      location: location_ppc,
-      hl,
       gl,
+      hl,
       google_domain: google_domain_ppc,
       device,
       num: '10',
-      no_cache: 'true',
       api_key: SERPAPI_KEY
     });
 
-    console.log('SerpApi PPC request:', keyword, location_ppc, gl, device);
+    console.log('SerpApi PPC request:', keyword, gl, google_domain_ppc, device);
     const response = await axios.get(`https://serpapi.com/search.json?${params}`, { timeout: 30000 });
     const data = response.data;
 
