@@ -857,20 +857,27 @@ app.post('/api/oxylabs-ppc', async (req, res) => {
     }
 
     // Oxylabs google_search target — specialized for ads
+    const { pages = 3 } = req.body;
+    const geoMap = {
+      'uk':'United Kingdom','us':'United States','de':'Germany','fr':'France',
+      'it':'Italy','es':'Spain','ca':'Canada','au':'Australia','nl':'Netherlands',
+      'se':'Sweden','br':'Brazil','in':'India','ae':'United Arab Emirates',
+      'ua':'Ukraine','pl':'Poland','fi':'Finland','no':'Norway','dk':'Denmark',
+      'jp':'Japan','kr':'South Korea','sg':'Singapore','za':'South Africa','mx':'Mexico'
+    };
+    const domainMap = {
+      'uk':'co.uk','au':'com.au','ca':'ca','br':'com.br','in':'co.in',
+      'jp':'co.jp','kr':'co.kr','sg':'com.sg','za':'co.za','mx':'com.mx'
+    };
+
     const payload = {
       source: 'google_ads',
       query: keyword,
-      domain: gl === 'uk' ? 'co.uk' : gl === 'au' ? 'com.au' : gl === 'ca' ? 'ca' : 'com',
-      geo_location: gl === 'uk' ? 'United Kingdom' : gl === 'us' ? 'United States' :
-                    gl === 'de' ? 'Germany' : gl === 'fr' ? 'France' :
-                    gl === 'it' ? 'Italy' : gl === 'es' ? 'Spain' :
-                    gl === 'ca' ? 'Canada' : gl === 'au' ? 'Australia' :
-                    gl === 'nl' ? 'Netherlands' : gl === 'se' ? 'Sweden' :
-                    gl === 'br' ? 'Brazil' : gl === 'in' ? 'India' :
-                    gl === 'ae' ? 'United Arab Emirates' : gl === 'ua' ? 'Ukraine' : 'United Kingdom',
+      domain: domainMap[gl] || 'com',
+      geo_location: geoMap[gl] || 'United Kingdom',
       locale: hl,
       device_type: device === 'mobile' ? 'mobile' : 'desktop',
-      pages: 1,
+      pages: Math.min(pages, 5),
       parse: true
     };
 
@@ -930,7 +937,8 @@ app.post('/api/oxylabs-ppc', async (req, res) => {
 
     const paidAds = results_data?.paid || [];
     const plaAds = results_data?.pla || [];
-    console.log('paid:', paidAds.length, 'pla:', plaAds.length);
+    const organicResults = results_data?.organic || [];
+    console.log('paid:', paidAds.length, 'pla:', plaAds.length, 'organic:', organicResults.length);
 
     if (paidAds[0]) console.log('First paid:', JSON.stringify(paidAds[0]).slice(0, 200));
 
@@ -989,10 +997,21 @@ app.post('/api/oxylabs-ppc', async (req, res) => {
       }));
     }
 
+    // Map organic results
+    const organic = organicResults.map((r, i) => ({
+      pos: r.pos || i + 1,
+      title: r.title || '',
+      desc: r.desc || r.description || '',
+      url: r.url || '',
+      url_shown: r.url_shown || r.domain || '',
+      domain: r.url_shown || ''
+    }));
+
     res.json({
       success: true,
       data: {
         ads,
+        organic,
         keyword,
         geo: payload.geo_location,
         device,
