@@ -644,10 +644,11 @@ app.post('/api/serpapi-ads', async (req, res) => {
       api_key: SERPAPI_KEY
     });
 
-    const response = await axios.get(`https://serpapi.com/search.json?${params}`);
+    const response = await axios.get(`https://serpapi.com/search.json?${params}`, { timeout: 30000 });
     const data = response.data;
 
     console.log('SerpApi status:', data.search_metadata?.status);
+    console.log('SerpApi ads count:', data.ads?.length || 0);
 
     // Extract paid ads
     const ads = (data.ads || []).map((ad, idx) => ({
@@ -714,8 +715,10 @@ app.post('/api/serpapi-ppc', async (req, res) => {
       api_key: SERPAPI_KEY
     });
 
-    const response = await axios.get(`https://serpapi.com/search.json?${params}`);
+    const response = await axios.get(`https://serpapi.com/search.json?${params}`, { timeout: 30000 });
     const data = response.data;
+
+    console.log('SerpApi PPC ads:', data.ads?.length || 0);
 
     const ads = (data.ads || []).map((ad, idx) => ({
       position: ad.position || idx + 1,
