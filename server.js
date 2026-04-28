@@ -623,6 +623,146 @@ app.post('/api/ppc-overview', async (req, res) => {
   }
 });
 
+// ── POST /api/serpapi-ads ─────────────────────────────────────────────────────
+// SerpApi — guaranteed paid ads from Google SERP
+app.post('/api/serpapi-ads', async (req, res) => {
+  try {
+    const { keyword, location = 'United Kingdom', device = 'desktop', hl = 'en', gl = 'uk' } = req.body;
+    if (!keyword) return res.status(400).json({ error: 'keyword is required' });
+
+    const SERPAPI_KEY = process.env.SERPAPI_KEY;
+    if (!SERPAPI_KEY) return res.status(400).json({ error: 'SERPAPI_KEY not set in env vars' });
+
+    const params = new URLSearchParams({
+      engine: 'google',
+      q: keyword,
+      location,
+      hl,
+      gl,
+      device,
+      num: '10',
+      api_key: SERPAPI_KEY
+    });
+
+    const response = await axios.get(`https://serpapi.com/search.json?${params}`);
+    const data = response.data;
+
+    console.log('SerpApi status:', data.search_metadata?.status);
+
+    // Extract paid ads
+    const ads = (data.ads || []).map((ad, idx) => ({
+      position: ad.position || idx + 1,
+      title: ad.title,
+      titles: ad.title ? [ad.title] : [],
+      description: ad.description,
+      display_url: ad.displayed_link || ad.domain,
+      domain: ad.domain || new URL(ad.link || 'https://unknown').hostname,
+      url: ad.link,
+      sitelinks: (ad.sitelinks || []).map(s => ({ title: s.title, url: s.link, description: s.description })),
+      callouts: ad.extensions || [],
+      promos: [],
+      source: 'serpapi'
+    }));
+
+    // Also extract organic for context
+    const organic = (data.organic_results || []).slice(0, 5).map(r => ({
+      position: r.position,
+      title: r.title,
+      url: r.link,
+      domain: r.displayed_link,
+      description: r.snippet
+    }));
+
+    console.log('SerpApi ads found:', ads.length, 'organic:', organic.length);
+
+    res.json({
+      success: true,
+      data: {
+        ads,
+        organic,
+        keyword,
+        location,
+        total_ads: ads.length,
+        source: 'serpapi',
+        credits_used: 1
+      }
+    });
+  } catch (err) {
+    console.error('[serpapi-ads error]', err.response?.data || err.message);
+    res.status(500).json({ error: err.response?.data?.error || err.message });
+  }
+});
+
+// ── POST /api/serpapi-ppc ──────────────────────────────────────────────────────
+// SerpApi — PPC overview with screenshots
+app.post('/api/serpapi-ppc', async (req, res) => {
+  try {
+    const { keyword, location = 'United Kingdom', device = 'desktop', hl = 'en', gl = 'uk' } = req.body;
+    if (!keyword) return res.status(400).json({ error: 'keyword is required' });
+
+    const SERPAPI_KEY = process.env.SERPAPI_KEY;
+    if (!SERPAPI_KEY) return res.status(400).json({ error: 'SERPAPI_KEY not set in env vars' });
+
+    const params = new URLSearchParams({
+      engine: 'google',
+      q: keyword,
+      location,
+      hl,
+      gl,
+      device,
+      num: '10',
+      api_key: SERPAPI_KEY
+    });
+
+    const response = await axios.get(`https://serpapi.com/search.json?${params}`);
+    const data = response.data;
+
+    const ads = (data.ads || []).map((ad, idx) => ({
+      position: ad.position || idx + 1,
+      title: ad.title,
+      description: ad.description,
+      display_url: ad.displayed_link,
+      domain: ad.domain || '',
+      url: ad.link,
+      sitelinks: (ad.sitelinks || []).map(s => ({ title: s.title, url: s.link })),
+      callouts: ad.extensions || [],
+      screenshot: null,
+      source: 'serpapi'
+    }));
+
+    // Take screenshots via DataForSEO
+    if (ads.length > 0) {
+      await Promise.all(ads.slice(0, 5).map(async ad => {
+        try {
+          if (!ad.url) return;
+          const ssRes = await axios.post(
+            `${DFORSEO_BASE}/on_page/screenshot`,
+            [{ url: ad.url, full_page_screenshot: false, browser_preset: device === 'mobile' ? 'mobile' : 'desktop', load_resources: false, enable_javascript: true }],
+            { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
+          );
+          const ssTask = ssRes.data?.tasks?.[0];
+          if (ssTask?.status_code === 20000) {
+            const result = ssTask.result?.[0];
+            if (result?.items?.[0]?.screenshot_png) {
+              ad.screenshot = `data:image/png;base64,${result.items[0].screenshot_png}`;
+            }
+          }
+        } catch(e) {
+          console.log('Screenshot error:', e.message);
+        }
+      }));
+    }
+
+    res.json({
+      success: true,
+      data: { ads, keyword, location, total: ads.length, screenshots: ads.filter(a => a.screenshot).length }
+    });
+  } catch (err) {
+    console.error('[serpapi-ppc error]', err.response?.data || err.message);
+    res.status(500).json({ error: err.response?.data?.error || err.message });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`KeySpy proxy running on port ${PORT}`);
