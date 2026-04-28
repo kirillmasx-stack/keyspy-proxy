@@ -1025,6 +1025,108 @@ app.post('/api/oxylabs-ppc', async (req, res) => {
   }
 });
 
+// ── POST /api/meta-ads ────────────────────────────────────────────────────────
+// Meta Ads Library API — spy on Facebook/Instagram ads
+app.post('/api/meta-ads', async (req, res) => {
+  try {
+    const { 
+      query, 
+      mode = 'keyword',  // 'keyword' or 'domain'
+      country = 'GB', 
+      platform = 'all',  // 'facebook', 'instagram', 'all'
+      status = 'active', // 'active', 'inactive', 'all'
+      limit = 20,
+      media_type = 'all' // 'image', 'video', 'all'
+    } = req.body;
+
+    if (!query) return res.status(400).json({ error: 'query is required' });
+
+    const META_TOKEN = process.env.META_ADS_TOKEN;
+    if (!META_TOKEN) return res.status(400).json({ error: 'META_ADS_TOKEN not set in env vars' });
+
+    // Build Meta Ads Library API request
+    const params = new URLSearchParams({
+      access_token: META_TOKEN,
+      ad_type: 'ALL',
+      limit: Math.min(limit, 50),
+      fields: 'id,ad_creative_bodies,ad_creative_link_captions,ad_creative_link_descriptions,ad_creative_link_titles,ad_delivery_start_time,ad_delivery_stop_time,ad_snapshot_url,currency,demographic_distribution,delivery_by_region,estimated_audience_size,impressions,page_id,page_name,publisher_platforms,spend,languages'
+    });
+
+    // Filter by status
+    if (status !== 'all') {
+      params.append('ad_active_status', status.toUpperCase());
+    }
+
+    // Filter by country
+    if (country) params.append('ad_reached_countries', country);
+
+    // Filter by platform
+    if (platform !== 'all') {
+      params.append('publisher_platforms', platform);
+    }
+
+    // Filter by media type
+    if (media_type !== 'all') {
+      params.append('media_type', media_type.toUpperCase());
+    }
+
+    // Search by keyword or domain
+    if (mode === 'domain') {
+      params.append('search_page_ids', '');
+      params.append('search_terms', query);
+    } else {
+      params.append('search_terms', query);
+    }
+
+    console.log('Meta Ads request:', query, country, platform, status);
+
+    const response = await axios.get(
+      `https://graph.facebook.com/v19.0/ads_archive?${params}`,
+      { timeout: 15000 }
+    );
+
+    const data = response.data;
+    console.log('Meta Ads found:', data.data?.length || 0);
+
+    const ads = (data.data || []).map(ad => ({
+      id: ad.id,
+      page_name: ad.page_name || '',
+      page_id: ad.page_id || '',
+      titles: ad.ad_creative_link_titles || [],
+      bodies: ad.ad_creative_bodies || [],
+      descriptions: ad.ad_creative_link_descriptions || [],
+      captions: ad.ad_creative_link_captions || [],
+      snapshot_url: ad.ad_snapshot_url || '',
+      platforms: ad.publisher_platforms || [],
+      start_date: ad.ad_delivery_start_time || null,
+      stop_date: ad.ad_delivery_stop_time || null,
+      is_active: !ad.ad_delivery_stop_time,
+      impressions: ad.impressions || null,
+      spend: ad.spend || null,
+      languages: ad.languages || [],
+      currency: ad.currency || 'USD',
+      estimated_audience: ad.estimated_audience_size || null
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        ads,
+        query,
+        country,
+        platform,
+        status,
+        total: ads.length,
+        next_cursor: data.paging?.cursors?.after || null
+      }
+    });
+  } catch (err) {
+    console.error('[meta-ads error]', err.response?.data || err.message);
+    const errMsg = err.response?.data?.error?.message || err.message;
+    res.status(500).json({ error: errMsg });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`KeySpy proxy running on port ${PORT}`);
