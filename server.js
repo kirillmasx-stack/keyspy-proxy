@@ -174,13 +174,27 @@ app.post('/api/serp-ads', async (req, res) => {
 // Fetches BOTH organic + paid in parallel
 app.post('/api/serp-organic', async (req, res) => {
   try {
-    const { keyword, location_code = 2826, language_code = 'en', device = 'desktop', depth = 100 } = req.body;
+    const { keyword, location_code = 2826, language_code = 'en', device = 'desktop', depth = 100, engine = 'google' } = req.body;
     if (!keyword) return res.status(400).json({ error: 'keyword is required' });
 
-    // Use regular endpoint - returns both organic + paid results together
+    // Map engine to DataForSEO path
+    const enginePathMap = {
+      google:  'google/organic/live/regular',
+      bing:    'bing/organic/live/regular',
+      yahoo:   'yahoo/organic/live/regular',
+      youtube: 'youtube/organic/live/advanced'
+    };
+    const serpPath = enginePathMap[engine] || 'google/organic/live/regular';
+    console.log('SERP engine:', engine, serpPath);
+
+    // YouTube doesn't use device/os params
+    const reqBody = engine === 'youtube'
+      ? [{ keyword, location_code, language_code, depth }]
+      : [{ keyword, location_code, language_code, device, os: device === 'mobile' ? 'android' : 'windows', depth }];
+
     const organicRes = await axios.post(
-      `${DFORSEO_BASE}/serp/google/organic/live/regular`,
-      [{ keyword, location_code, language_code, device, os: device === 'mobile' ? 'android' : 'windows', depth }],
+      `${DFORSEO_BASE}/serp/${serpPath}`,
+      reqBody,
       { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
     );
 
