@@ -758,8 +758,14 @@ app.post('/api/serpapi-ppc', async (req, res) => {
       data: { ads, keyword, location, total: ads.length, screenshots: ads.filter(a => a.screenshot).length }
     });
   } catch (err) {
-    console.error('[serpapi-ppc error]', err.response?.data || err.message);
-    res.status(500).json({ error: err.response?.data?.error || err.message });
+    console.error('[serpapi-ppc error]', JSON.stringify(err.response?.data) || err.message);
+    console.error('[serpapi-ppc status]', err.response?.status);
+    console.error('[serpapi-ppc full]', err.message);
+    res.status(500).json({ 
+      error: err.response?.data?.error || err.message,
+      status: err.response?.status,
+      details: err.response?.data
+    });
   }
 });
 
