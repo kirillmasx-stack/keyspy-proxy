@@ -634,28 +634,46 @@ app.post('/api/serpapi-ads', async (req, res) => {
     if (!SERPAPI_KEY) return res.status(400).json({ error: 'SERPAPI_KEY not set in env vars' });
 
     // Map gl to correct google domain
-    const googleDomains = {
+    const locationMapAds = {
+      'uk': 'London,England,United Kingdom',
+      'us': 'New York,New York,United States',
+      'de': 'Berlin,Berlin,Germany',
+      'fr': 'Paris,Ile-de-France,France',
+      'it': 'Rome,Lazio,Italy',
+      'es': 'Madrid,Community of Madrid,Spain',
+      'ca': 'Toronto,Ontario,Canada',
+      'au': 'Sydney,New South Wales,Australia',
+      'nl': 'Amsterdam,North Holland,Netherlands',
+      'se': 'Stockholm,Stockholm County,Sweden',
+      'br': 'Sao Paulo,Sao Paulo,Brazil',
+      'in': 'Mumbai,Maharashtra,India',
+      'ae': 'Dubai,Dubai,United Arab Emirates',
+      'ua': 'Kyiv,Kyiv City,Ukraine'
+    };
+    const googleDomainsAds = {
       'uk': 'google.co.uk', 'us': 'google.com', 'de': 'google.de',
       'fr': 'google.fr', 'it': 'google.it', 'es': 'google.es',
       'ca': 'google.ca', 'au': 'google.com.au', 'nl': 'google.nl',
-      'se': 'google.se', 'no': 'google.no', 'dk': 'google.dk',
-      'fi': 'google.fi', 'pl': 'google.pl', 'br': 'google.com.br',
-      'in': 'google.co.in', 'ae': 'google.ae', 'ua': 'google.com.ua'
+      'se': 'google.se', 'br': 'google.com.br', 'in': 'google.co.in',
+      'ae': 'google.ae', 'ua': 'google.com.ua'
     };
-    const google_domain = googleDomains[gl] || 'google.com';
+    const location_ads = locationMapAds[gl] || 'London,England,United Kingdom';
+    const google_domain = googleDomainsAds[gl] || 'google.com';
 
     const params = new URLSearchParams({
       engine: 'google',
       q: keyword,
+      location: location_ads,
       hl,
       gl,
       google_domain,
       device,
       num: '10',
+      no_cache: 'true',
       api_key: SERPAPI_KEY
     });
 
-    console.log('SerpApi request:', keyword, gl, google_domain, device);
+    console.log('SerpApi Ads request:', keyword, location_ads, gl, device);
     const response = await axios.get(`https://serpapi.com/search.json?${params}`, { timeout: 30000 });
     const data = response.data;
 
@@ -718,27 +736,57 @@ app.post('/api/serpapi-ppc', async (req, res) => {
     const SERPAPI_KEY = process.env.SERPAPI_KEY;
     if (!SERPAPI_KEY) return res.status(400).json({ error: 'SERPAPI_KEY not set in env vars' });
 
-    const googleDomainsPpc = {
+    // SerpApi location map — city level for accurate geo results
+    const locationMap = {
+      'uk': 'London,England,United Kingdom',
+      'us': 'New York,New York,United States',
+      'de': 'Berlin,Berlin,Germany',
+      'fr': 'Paris,Ile-de-France,France',
+      'it': 'Rome,Lazio,Italy',
+      'es': 'Madrid,Community of Madrid,Spain',
+      'ca': 'Toronto,Ontario,Canada',
+      'au': 'Sydney,New South Wales,Australia',
+      'nl': 'Amsterdam,North Holland,Netherlands',
+      'se': 'Stockholm,Stockholm County,Sweden',
+      'no': 'Oslo,Oslo,Norway',
+      'dk': 'Copenhagen,Capital Region,Denmark',
+      'fi': 'Helsinki,Uusimaa,Finland',
+      'pl': 'Warsaw,Masovian Voivodeship,Poland',
+      'br': 'Sao Paulo,Sao Paulo,Brazil',
+      'in': 'Mumbai,Maharashtra,India',
+      'ae': 'Dubai,Dubai,United Arab Emirates',
+      'ua': 'Kyiv,Kyiv City,Ukraine',
+      'za': 'Johannesburg,Gauteng,South Africa',
+      'mx': 'Mexico City,Mexico City,Mexico',
+      'jp': 'Tokyo,Tokyo,Japan',
+      'kr': 'Seoul,Seoul,South Korea',
+      'sg': 'Singapore,Singapore'
+    };
+    const googleDomainMap = {
       'uk': 'google.co.uk', 'us': 'google.com', 'de': 'google.de',
       'fr': 'google.fr', 'it': 'google.it', 'es': 'google.es',
       'ca': 'google.ca', 'au': 'google.com.au', 'nl': 'google.nl',
       'se': 'google.se', 'br': 'google.com.br', 'in': 'google.co.in',
-      'ae': 'google.ae', 'ua': 'google.com.ua'
+      'ae': 'google.ae', 'ua': 'google.com.ua', 'jp': 'google.co.jp',
+      'kr': 'google.co.kr', 'sg': 'google.com.sg'
     };
-    const google_domain_ppc = googleDomainsPpc[gl] || 'google.com';
+    const location_ppc = locationMap[gl] || 'United Kingdom';
+    const google_domain_ppc = googleDomainMap[gl] || 'google.com';
 
     const params = new URLSearchParams({
       engine: 'google',
       q: keyword,
+      location: location_ppc,
       hl,
       gl,
       google_domain: google_domain_ppc,
       device,
       num: '10',
+      no_cache: 'true',
       api_key: SERPAPI_KEY
     });
 
-    console.log('SerpApi PPC request:', keyword, gl, google_domain_ppc, device);
+    console.log('SerpApi PPC request:', keyword, location_ppc, gl, device);
     const response = await axios.get(`https://serpapi.com/search.json?${params}`, { timeout: 30000 });
     const data = response.data;
 
