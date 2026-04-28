@@ -1190,7 +1190,7 @@ app.post('/api/site-audit', async (req, res) => {
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/competitors_domain/live`,
         [{ target, location_code, language_code, limit: 10 }], { headers })),
       // 5. Top pages by traffic
-      safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_pages_summary/live`,
+      safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_pages/live`,
         [{ target, location_code, language_code, limit: 10, order_by: ['metrics.organic.etv,desc'] }], { headers }))
     ]);
 
@@ -1201,14 +1201,14 @@ app.post('/api/site-audit', async (req, res) => {
     console.log('Competitors:', competitorsRes?.data?.tasks?.[0]?.status_code);
     console.log('Pages:', pagesRes?.data?.tasks?.[0]?.status_code);
 
-    // Parse overview
-    const overview = overviewRes.data?.tasks?.[0]?.result?.[0]?.metrics || {};
+    // Parse overview (safe null checks)
+    const overview = overviewRes?.data?.tasks?.[0]?.result?.[0]?.metrics || {};
     const organic = overview.organic || {};
     const paid = overview.paid || {};
 
     // Parse keywords
-    const kwTask = keywordsRes.data?.tasks?.[0];
-    const keywords = (kwTask?.result?.[0]?.items || []).map(item => ({
+    const kwItems = keywordsRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
+    const keywords = kwItems.map(item => ({
       keyword: item.keyword_data?.keyword || '',
       position: item.ranked_serp_element?.serp_item?.rank_absolute || 0,
       volume: item.keyword_data?.keyword_info?.search_volume || 0,
@@ -1218,12 +1218,11 @@ app.post('/api/site-audit', async (req, res) => {
     }));
 
     // Parse backlinks
-    const blTask = backlinksRes.data?.tasks?.[0];
-    const backlinks = blTask?.result?.[0] || {};
+    const backlinks = backlinksRes?.data?.tasks?.[0]?.result?.[0] || {};
 
     // Parse competitors
-    const compTask = competitorsRes.data?.tasks?.[0];
-    const competitors = (compTask?.result?.[0]?.items || []).map(item => ({
+    const compItems = competitorsRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
+    const competitors = compItems.map(item => ({
       domain: item.domain || '',
       common_keywords: item.intersections || 0,
       organic_keywords: item.metrics?.organic?.count || 0,
@@ -1231,8 +1230,8 @@ app.post('/api/site-audit', async (req, res) => {
     }));
 
     // Parse pages
-    const pagesTask = pagesRes.data?.tasks?.[0];
-    const pages = (pagesTask?.result?.[0]?.items || []).map(item => ({
+    const pagesItems = pagesRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
+    const pages = pagesItems.map(item => ({
       url: item.url || '',
       keywords: item.metrics?.organic?.count || 0,
       traffic: item.metrics?.organic?.etv || 0,
