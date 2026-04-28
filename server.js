@@ -1268,6 +1268,161 @@ app.post('/api/site-audit', async (req, res) => {
   }
 });
 
+// ── POST /api/crypto/create-payment ──────────────────────────────────────────
+app.post('/api/crypto/create-payment', async (req, res) => {
+  try {
+    const { plan, user_id, user_email } = req.body;
+    const NOWPAY_KEY = process.env.NOWPAYMENTS_API_KEY;
+    if (!NOWPAY_KEY) return res.status(400).json({ error: 'NOWPAYMENTS_API_KEY not set' });
+
+    const plans = {
+      pro:    { price: 149, name: 'KeySpy Pro' },
+      agency: { price: 399, name: 'KeySpy Agency' }
+    };
+    const selected = plans[plan];
+    if (!selected) return res.status(400).json({ error: 'Invalid plan' });
+
+    const response = await axios.post(
+      'https://api.nowpayments.io/v1/payment',
+      {
+        price_amount: selected.price,
+        price_currency: 'usd',
+        pay_currency: 'usdttrc20', // default USDT TRC20, user can choose
+        order_id: `${plan}_${user_id}_${Date.now()}`,
+        order_description: `${selected.name} — Monthly Subscription`,
+        ipn_callback_url: `${process.env.PROXY_URL || ''}/api/crypto/webhook`,
+        success_url: 'https://keyspy.cr100.group?payment=success',
+        cancel_url: 'https://keyspy.cr100.group?payment=cancelled',
+        is_fixed_rate: false,
+        is_fee_paid_by_user: false
+      },
+      {
+        headers: {
+          'x-api-key': NOWPAY_KEY,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    console.log('NowPayments payment created:', response.data?.payment_id);
+    res.json({ success: true, data: response.data });
+  } catch (err) {
+    console.error('[crypto payment error]', err.response?.data || err.message);
+    res.status(500).json({ error: err.response?.data?.message || err.message });
+  }
+});
+
+// ── POST /api/crypto/create-invoice ──────────────────────────────────────────
+// Create invoice with multiple currency options
+app.post('/api/crypto/create-invoice', async (req, res) => {
+  try {
+    const { plan, user_id, user_email } = req.body;
+    const NOWPAY_KEY = process.env.NOWPAYMENTS_API_KEY;
+    if (!NOWPAY_KEY) return res.status(400).json({ error: 'NOWPAYMENTS_API_KEY not set' });
+
+    const plans = {
+      pro:    { price: 149, name: 'KeySpy Pro' },
+      agency: { price: 399, name: 'KeySpy Agency' }
+    };
+    const selected = plans[plan];
+    if (!selected) return res.status(400).json({ error: 'Invalid plan' });
+
+    const response = await axios.post(
+      'https://api.nowpayments.io/v1/invoice',
+      {
+        price_amount: selected.price,
+        price_currency: 'usd',
+        order_id: `${plan}_${user_id}_${Date.now()}`,
+        order_description: `${selected.name} — Monthly Subscription`,
+        ipn_callback_url: `${process.env.PROXY_URL || ''}/api/crypto/webhook`,
+        success_url: 'https://keyspy.cr100.group?payment=success',
+        cancel_url: 'https://keyspy.cr100.group?payment=cancelled',
+        pay_currencies: ['btc', 'eth', 'usdttrc20', 'usdterc20', 'ltc', 'ton'],
+        is_fixed_rate: false
+      },
+      {
+        headers: {
+          'x-api-key': NOWPAY_KEY,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    console.log('NowPayments invoice created:', response.data?.id);
+    res.json({ success: true, data: response.data });
+  } catch (err) {
+    console.error('[crypto invoice error]', err.response?.data || err.message);
+    res.status(500).json({ error: err.response?.data?.message || err.message });
+  }
+});
+
+// ── GET /api/crypto/payment-status ───────────────────────────────────────────
+app.get('/api/crypto/payment-status/:payment_id', async (req, res) => {
+  try {
+    const NOWPAY_KEY = process.env.NOWPAYMENTS_API_KEY;
+    if (!NOWPAY_KEY) return res.status(400).json({ error: 'NOWPAYMENTS_API_KEY not set' });
+
+    const response = await axios.get(
+      `https://api.nowpayments.io/v1/payment/${req.params.payment_id}`,
+      { headers: { 'x-api-key': NOWPAY_KEY } }
+    );
+
+    res.json({ success: true, data: response.data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/crypto/webhook ──────────────────────────────────────────────────
+// NowPayments IPN webhook — updates user subscription on payment
+app.post('/api/crypto/webhook', async (req, res) => {
+  try {
+    const payload = req.body;
+    console.log('NowPayments webhook:', payload.payment_status, payload.order_id);
+
+    // Verify payment is confirmed
+    if (['finished', 'confirmed', 'partially_paid'].includes(payload.payment_status)) {
+      const [plan, user_id] = (payload.order_id || '').split('_');
+      console.log('Payment confirmed! Plan:', plan, 'User:', user_id);
+
+      // Update Supabase subscription
+      // Note: Add SUPABASE_SERVICE_KEY to Railway for this to work
+      const SUPABASE_URL = process.env.SUPABASE_URL;
+      const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
+
+      if (SUPABASE_URL && SUPABASE_KEY && user_id) {
+        await axios.post(
+          `${SUPABASE_URL}/rest/v1/subscriptions`,
+          {
+            user_id,
+            plan,
+            status: 'active',
+            payment_method: 'crypto',
+            payment_id: payload.payment_id,
+            amount: payload.price_amount,
+            currency: payload.pay_currency,
+            updated_at: new Date().toISOString()
+          },
+          {
+            headers: {
+              'apikey': SUPABASE_KEY,
+              'Authorization': `Bearer ${SUPABASE_KEY}`,
+              'Content-Type': 'application/json',
+              'Prefer': 'resolution=merge-duplicates'
+            }
+          }
+        );
+        console.log('Subscription updated in Supabase');
+      }
+    }
+
+    res.sendStatus(200);
+  } catch (err) {
+    console.error('[webhook error]', err.message);
+    res.sendStatus(200); // Always return 200 to NowPayments
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`KeySpy proxy running on port ${PORT}`);
