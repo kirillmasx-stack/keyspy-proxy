@@ -73,8 +73,10 @@ app.post('/api/keywords', async (req, res) => {
       .filter(item => item.search_volume > 0)
       .sort((a, b) => (b.search_volume || 0) - (a.search_volume || 0))
       .map(item => {
-        // competition comes as string: "LOW"/"MEDIUM"/"HIGH"
-        const compStr = (item.competition || '').toUpperCase();
+        // competition can be string ("LOW"/"MEDIUM"/"HIGH") or number (0-1)
+        const compRaw = item.competition_level || item.competition || '';
+        const compStr = typeof compRaw === 'string' ? compRaw.toUpperCase() : 
+                        (typeof compRaw === 'number' ? (compRaw > 0.66 ? 'HIGH' : compRaw > 0.33 ? 'MEDIUM' : 'LOW') : 'LOW');
         const compNum = compStr === 'HIGH' ? 0.85 : compStr === 'MEDIUM' ? 0.5 : compStr === 'LOW' ? 0.15 : 0;
         return {
           keyword: item.keyword,
