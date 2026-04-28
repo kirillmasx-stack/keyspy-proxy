@@ -46,8 +46,10 @@ app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date().toISO
 
 app.post('/api/keywords', async (req, res) => {
   try {
-    const { keyword, location_code = 2826, language_code = 'en' } = req.body;
+    const { keyword, location_code = 2826, language_code = 'en', engine = 'google' } = req.body;
     if (!keyword) return res.status(400).json({ error: 'keyword is required' });
+    const se = engine === 'bing' ? 'bing' : 'google';
+    console.log('Keywords engine:', se);
 
     // Generate 50 keyword variations to bulk check volumes
     const variations = generateVariations(keyword);
