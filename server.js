@@ -536,6 +536,93 @@ function parseAdsItem(item) {
   };
 }
 
+// ── POST /api/ppc-overview ────────────────────────────────────────────────────
+// Gets live PPC ads + screenshots of landing pages
+app.post('/api/ppc-overview', async (req, res) => {
+  try {
+    const { keyword, location_code = 2826, language_code = 'en', device = 'desktop', take_screenshots = true } = req.body;
+    if (!keyword) return res.status(400).json({ error: 'keyword is required' });
+
+    // Step 1: Get paid ads from SERP
+    const serpRes = await axios.post(
+      `${DFORSEO_BASE}/serp/google/organic/live/advanced`,
+      [{ keyword, location_code, language_code, device, os: device === 'mobile' ? 'android' : 'windows', depth: 10 }],
+      { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
+    );
+    const serpTask = serpRes.data?.tasks?.[0];
+    console.log('PPC overview SERP status:', serpTask?.status_code);
+    if (!serpTask || serpTask.status_code !== 20000) {
+      return res.status(400).json({ error: serpTask?.status_message || 'SERP error' });
+    }
+
+    const items = serpTask.result?.[0]?.items || [];
+    const paidAds = items.filter(i => i.type === 'paid').map((item, idx) => ({
+      position: item.rank_absolute || idx + 1,
+      domain: item.domain,
+      title: item.title,
+      description: item.description,
+      url: item.url,
+      display_url: item.breadcrumb || item.domain,
+      sitelinks: (item.sitelinks || []).map(s => ({ title: s.title, url: s.url })),
+      screenshot: null
+    }));
+
+    console.log('Paid ads found:', paidAds.length);
+
+    // Step 2: Take screenshots of landing pages (parallel, max 5)
+    if (take_screenshots && paidAds.length > 0) {
+      const adsToScreenshot = paidAds.slice(0, 5);
+      
+      await Promise.all(adsToScreenshot.map(async (ad, idx) => {
+        try {
+          if (!ad.url) return;
+          
+          // Post screenshot task
+          const ssRes = await axios.post(
+            `${DFORSEO_BASE}/on_page/screenshot`,
+            [{
+              url: ad.url,
+              full_page_screenshot: false,
+              browser_preset: device === 'mobile' ? 'mobile' : 'desktop',
+              custom_js: '',
+              load_resources: false,
+              enable_javascript: true,
+              accept_language: language_code + '-' + (location_code === 2826 ? 'GB' : 'US')
+            }],
+            { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
+          );
+          const ssTask = ssRes.data?.tasks?.[0];
+          console.log(`Screenshot ${idx+1} status:`, ssTask?.status_code, ssTask?.status_message);
+          
+          if (ssTask?.status_code === 20000) {
+            const result = ssTask.result?.[0];
+            if (result?.items?.[0]?.screenshot_png) {
+              ad.screenshot = `data:image/png;base64,${result.items[0].screenshot_png}`;
+            } else if (result?.screenshot_png) {
+              ad.screenshot = `data:image/png;base64,${result.screenshot_png}`;
+            }
+          }
+        } catch(e) {
+          console.log('Screenshot error for', ad.domain, ':', e.message);
+        }
+      }));
+    }
+
+    res.json({ 
+      success: true, 
+      data: { 
+        keyword, location_code, device,
+        ads: paidAds, 
+        total: paidAds.length,
+        screenshots_taken: paidAds.filter(a => a.screenshot).length
+      } 
+    });
+  } catch (err) {
+    console.error('[ppc-overview error]', err.response?.data || err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`KeySpy proxy running on port ${PORT}`);
