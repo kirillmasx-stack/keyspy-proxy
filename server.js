@@ -890,11 +890,7 @@ app.post('/api/oxylabs-ppc', async (req, res) => {
     const rawData = response.data;
     const result = rawData?.results?.[0];
     
-    // Try to get paid from multiple paths
-    const contentObj = result?.content;
-    const directPaid = contentObj?.results?.paid;
-    console.log('Direct paid path length:', directPaid?.length || 0);
-    console.log('Full content sample:', JSON.stringify(contentObj?.results?.paid?.slice(0,1) || 'empty'));
+    // Response parsed below
     console.log('Oxylabs status:', result?.status_code);
     console.log('Oxylabs response keys:', Object.keys(response.data || {}));
     console.log('Oxylabs result keys:', Object.keys(result || {}));
