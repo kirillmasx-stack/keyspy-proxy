@@ -714,7 +714,6 @@ app.post('/api/serpapi-ads', async (req, res) => {
         ads,
         organic,
         keyword,
-        location,
         total_ads: ads.length,
         source: 'serpapi',
         credits_used: 1
@@ -830,7 +829,7 @@ app.post('/api/serpapi-ppc', async (req, res) => {
 
     res.json({
       success: true,
-      data: { ads, keyword, location, total: ads.length, screenshots: ads.filter(a => a.screenshot).length }
+      data: { ads, keyword, total: ads.length, screenshots: ads.filter(a => a.screenshot).length }
     });
   } catch (err) {
     console.error('[serpapi-ppc error]', JSON.stringify(err.response?.data) || err.message);
