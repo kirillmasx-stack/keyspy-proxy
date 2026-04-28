@@ -1337,7 +1337,6 @@ app.post('/api/crypto/create-invoice', async (req, res) => {
         ipn_callback_url: `${process.env.PROXY_URL || ''}/api/crypto/webhook`,
         success_url: 'https://keyspy.cr100.group?payment=success',
         cancel_url: 'https://keyspy.cr100.group?payment=cancelled',
-        pay_currencies: ['btc', 'eth', 'usdttrc20', 'usdterc20', 'ltc', 'ton'],
         is_fixed_rate: false
       },
       {
