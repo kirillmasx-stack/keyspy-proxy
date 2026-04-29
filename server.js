@@ -1189,12 +1189,15 @@ app.post('/api/site-audit', async (req, res) => {
           [{ target, location_code: loc, language_code: 'en' }], { headers }))
       ));
       geoTraffic = probeResults.map((r, i) => {
-        const items = r?.data?.tasks?.[0]?.result?.[0]?.items || [];
-        const etv = items[0]?.metrics?.organic?.etv || r?.data?.tasks?.[0]?.result?.[0]?.metrics?.organic?.etv || 0;
+        const task = r?.data?.tasks?.[0];
+        const items = task?.result?.[0]?.items || [];
+        const etv = items[0]?.metrics?.organic?.etv || task?.result?.[0]?.metrics?.organic?.etv || 0;
+        console.log('Probe', probeGeos[i], 'status:', task?.status_code, 'etv:', Math.round(etv));
         return { loc: probeGeos[i], etv };
       }).filter(g => g.etv > 0).sort((a,b) => b.etv - a.etv);
-      console.log('Top GEOs:', geoTraffic.slice(0,7).map(g=>g.loc+':'+Math.round(g.etv)).join(', '));
+      console.log('Top GEOs found:', geoTraffic.length, geoTraffic.slice(0,3).map(g=>g.loc+':'+Math.round(g.etv)).join(', '));
       effectiveLocation = geoTraffic[0]?.loc || 2840;
+      console.log('Using effectiveLocation:', effectiveLocation);
     }
 
     const [overviewRes, keywordsRes, backlinksRes, competitorsRes, pagesRes, geoRes] = await Promise.all([
