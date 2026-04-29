@@ -1186,9 +1186,9 @@ app.post('/api/site-audit', async (req, res) => {
       // 3. Backlinks overview — correct endpoint
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
         [{ target, location_code: 2840, language_code: 'en' }], { headers })),
-      // 4. Organic competitors with historical data
+      // 4. Organic competitors — use US for biggest traffic numbers
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/competitors_domain/live`,
-        [{ target, location_code, language_code, limit: 5 }], { headers })),
+        [{ target, location_code: 2840, language_code: 'en', limit: 5 }], { headers })),
       // 5. Top pages by traffic
       safe(() => Promise.resolve(null)),
       // 6. placeholder
@@ -1235,14 +1235,27 @@ app.post('/api/site-audit', async (req, res) => {
       dofollow: Math.round((blOrganic.count || 0) * 0.6)
     };
 
-    // Parse competitors
+    // Parse competitors — get their domains first
     const compItems = competitorsRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
-    const competitors = compItems.map(item => ({
-      domain: item.domain || '',
-      common_keywords: item.intersections || 0,
-      organic_keywords: item.metrics?.organic?.count || 0,
-      organic_traffic: item.metrics?.organic?.etv || 0
-    }));
+    const compDomains = compItems.slice(0,5).map(item => item.domain).filter(Boolean);
+
+    // Fetch real traffic for each competitor domain
+    const compTrafficResults = await Promise.all(compDomains.map(domain =>
+      safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
+        [{ target: domain, location_code, language_code }], { headers }))
+    ));
+
+    const competitors = compItems.slice(0,5).map((item, i) => {
+      const trafficItems = compTrafficResults[i]?.data?.tasks?.[0]?.result?.[0]?.items || [];
+      const trafficMetrics = trafficItems[0]?.metrics?.organic || {};
+      return {
+        domain: item.domain || '',
+        common_keywords: item.intersections || 0,
+        organic_keywords: trafficMetrics.count || item.metrics?.organic?.count || 0,
+        organic_traffic: Math.round(trafficMetrics.etv || 0)
+      };
+    });
+    console.log('Competitors with traffic:', competitors.map(c => c.domain + ':' + c.organic_traffic).join(', '));
 
     // Parse pages
     const pagesItems = pagesRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
