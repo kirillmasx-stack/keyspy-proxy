@@ -1173,10 +1173,26 @@ app.post('/api/site-audit', async (req, res) => {
 
     const target = domain.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
     const isGlobal = !location_code || location_code === 0;
-    // For global: aggregate top 5 markets (US, UK, IN, BR, DE)
-    const GLOBAL_GEOS = [2840, 2826, 2356, 2076, 2276];
-    const effectiveLocation = isGlobal ? 2840 : location_code;
-    console.log('Site audit for:', target, isGlobal ? '[GLOBAL - aggregating 5 markets]' : '[GEO:'+location_code+']');
+    let effectiveLocation = isGlobal ? 2840 : location_code;
+    console.log('Site audit for:', target, isGlobal ? '[GLOBAL]' : '[GEO:'+location_code+']');
+
+    // For global mode: first detect top GEOs, then use #1 as primary
+    let topGeoLocation = effectiveLocation;
+    if (isGlobal) {
+      const probeGeos = [2840,2826,2356,2076,2276,2124,2036,2804,2724,2528,2752,2784,2616,2380,2250];
+      const probeResults = await Promise.all(probeGeos.map(loc =>
+        safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
+          [{ target, location_code: loc, language_code: 'en' }], { headers }))
+      ));
+      const geoTraffic = probeResults.map((r, i) => {
+        const items = r?.data?.tasks?.[0]?.result?.[0]?.items || [];
+        const etv = items[0]?.metrics?.organic?.etv || r?.data?.tasks?.[0]?.result?.[0]?.metrics?.organic?.etv || 0;
+        return { loc: probeGeos[i], etv };
+      }).filter(g => g.etv > 0).sort((a,b) => b.etv - a.etv);
+      console.log('Top GEOs:', geoTraffic.slice(0,7).map(g=>g.loc+':'+Math.round(g.etv)).join(', '));
+      topGeoLocation = geoTraffic[0]?.loc || 2840;
+      effectiveLocation = topGeoLocation;
+    }
 
     // Run all requests in parallel
     const headers = { Authorization: getAuthHeader(), 'Content-Type': 'application/json' };
@@ -1318,26 +1334,36 @@ app.post('/api/site-audit', async (req, res) => {
       impressions: item.metrics?.organic?.impressions_etv || 0
     }));
 
-    // Parse GEO distribution — get top countries
+    // Parse GEO distribution
     const geoData = [];
-    const geoList = [
-      {code:2826, name:'UK'}, {code:2840, name:'US'},
-      {code:2124, name:'CA'}, {code:2036, name:'AU'},
-      {code:2276, name:'DE'}, {code:2804, name:'UA'},
-      {code:2250, name:'FR'}, {code:2380, name:'IT'},
-      {code:2724, name:'ES'}, {code:2528, name:'NL'},
-      {code:2752, name:'SE'}, {code:2356, name:'IN'},
-      {code:2076, name:'BR'}, {code:2616, name:'PL'},
-      {code:2784, name:'AE'}
-    ];
-    for (const geo of geoList) {
-      try {
-        const gr = await axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
-          [{ target, location_code: geo.code, language_code: 'en' }], { headers });
-        const gItems = gr?.data?.tasks?.[0]?.result?.[0]?.items || [];
-        const gMetrics = gItems[0]?.metrics?.organic || gr?.data?.tasks?.[0]?.result?.[0]?.metrics?.organic || {};
-        if (gMetrics.etv > 0) geoData.push({ geo: geo.name, traffic: Math.round(gMetrics.etv), keywords: gMetrics.count || 0 });
-      } catch(e) {}
+    const geoNameMap2 = {2826:'UK',2840:'US',2124:'CA',2036:'AU',2276:'DE',2804:'UA',2250:'FR',2380:'IT',2724:'ES',2528:'NL',2752:'SE',2356:'IN',2076:'BR',2616:'PL',2784:'AE'};
+
+    if (isGlobal && typeof geoTraffic !== 'undefined' && geoTraffic.length > 0) {
+      // Reuse probe data from global detection (already fetched!)
+      geoTraffic.slice(0, 15).forEach(g => {
+        const name = geoNameMap2[g.loc] || String(g.loc);
+        geoData.push({ geo: name, traffic: Math.round(g.etv), keywords: 0 });
+      });
+    } else {
+      const geoList = [
+        {code:2826, name:'UK'}, {code:2840, name:'US'},
+        {code:2124, name:'CA'}, {code:2036, name:'AU'},
+        {code:2276, name:'DE'}, {code:2804, name:'UA'},
+        {code:2250, name:'FR'}, {code:2380, name:'IT'},
+        {code:2724, name:'ES'}, {code:2528, name:'NL'},
+        {code:2752, name:'SE'}, {code:2356, name:'IN'},
+        {code:2076, name:'BR'}, {code:2616, name:'PL'},
+        {code:2784, name:'AE'}
+      ];
+      for (const geo of geoList) {
+        try {
+          const gr = await axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
+            [{ target, location_code: geo.code, language_code: 'en' }], { headers });
+          const gItems = gr?.data?.tasks?.[0]?.result?.[0]?.items || [];
+          const gMetrics = gItems[0]?.metrics?.organic || gr?.data?.tasks?.[0]?.result?.[0]?.metrics?.organic || {};
+          if (gMetrics.etv > 0) geoData.push({ geo: geo.name, traffic: Math.round(gMetrics.etv), keywords: gMetrics.count || 0 });
+        } catch(e) {}
+      }
     }
     geoData.sort((a,b) => b.traffic - a.traffic);
 
@@ -1373,7 +1399,7 @@ app.post('/api/site-audit', async (req, res) => {
         overview: {
           organic_keywords: organic.count || 0,
           organic_traffic: isGlobal
-            ? geoData.reduce((s, g) => s + g.traffic, 0) || Math.round(organic.etv || 0)
+            ? geoData.slice(0,7).reduce((s, g) => s + g.traffic, 0) || Math.round(organic.etv || 0)
             : Math.round(organic.etv || 0),
           organic_traffic_value: Math.round(organic.estimated_paid_traffic_cost || organic.etv * 2 || 0),
           paid_keywords: paid.count || 0,
@@ -1397,7 +1423,7 @@ app.post('/api/site-audit', async (req, res) => {
         overview: {
           organic_keywords: organic.count || 0,
           organic_traffic: isGlobal
-            ? geoData.reduce((s, g) => s + g.traffic, 0) || Math.round(organic.etv || 0)
+            ? geoData.slice(0,7).reduce((s, g) => s + g.traffic, 0) || Math.round(organic.etv || 0)
             : Math.round(organic.etv || 0),
           organic_traffic_value: Math.round(organic.estimated_paid_traffic_cost || organic.etv * 2 || 0),
           paid_keywords: paid.count || 0,
