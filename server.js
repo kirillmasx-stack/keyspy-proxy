@@ -1176,27 +1176,26 @@ app.post('/api/site-audit', async (req, res) => {
     let effectiveLocation = isGlobal ? 2840 : location_code;
     console.log('Site audit for:', target, isGlobal ? '[GLOBAL]' : '[GEO:'+location_code+']');
 
-    // For global mode: first detect top GEOs, then use #1 as primary
-    let topGeoLocation = effectiveLocation;
+    // Headers and safe helper must be defined first
+    const headers = { Authorization: getAuthHeader(), 'Content-Type': 'application/json' };
+    const safe = async (fn) => { try { return await fn(); } catch(e) { console.log('Partial error:', e.message); return null; } };
+
+    // For global mode: probe top GEOs, use #1 as primary for keywords/competitors
+    let geoTraffic = [];
     if (isGlobal) {
       const probeGeos = [2840,2826,2356,2076,2276,2124,2036,2804,2724,2528,2752,2784,2616,2380,2250];
       const probeResults = await Promise.all(probeGeos.map(loc =>
         safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
           [{ target, location_code: loc, language_code: 'en' }], { headers }))
       ));
-      const geoTraffic = probeResults.map((r, i) => {
+      geoTraffic = probeResults.map((r, i) => {
         const items = r?.data?.tasks?.[0]?.result?.[0]?.items || [];
         const etv = items[0]?.metrics?.organic?.etv || r?.data?.tasks?.[0]?.result?.[0]?.metrics?.organic?.etv || 0;
         return { loc: probeGeos[i], etv };
       }).filter(g => g.etv > 0).sort((a,b) => b.etv - a.etv);
       console.log('Top GEOs:', geoTraffic.slice(0,7).map(g=>g.loc+':'+Math.round(g.etv)).join(', '));
-      topGeoLocation = geoTraffic[0]?.loc || 2840;
-      effectiveLocation = topGeoLocation;
+      effectiveLocation = geoTraffic[0]?.loc || 2840;
     }
-
-    // Run all requests in parallel
-    const headers = { Authorization: getAuthHeader(), 'Content-Type': 'application/json' };
-    const safe = async (fn) => { try { return await fn(); } catch(e) { console.log('Partial error:', e.message); return null; } };
 
     const [overviewRes, keywordsRes, backlinksRes, competitorsRes, pagesRes, geoRes] = await Promise.all([
       // 1. Domain overview
