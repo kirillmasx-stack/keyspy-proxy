@@ -1255,22 +1255,36 @@ app.post('/api/site-audit', async (req, res) => {
 
     // Parse GEO distribution — get top countries
     const geoData = [];
-    const locationMap = {2826:'🇬🇧 UK',2840:'🇺🇸 US',2276:'🇩🇪 DE',2124:'🇨🇦 CA',2036:'🇦🇺 AU',2804:'🇺🇦 UA',2250:'🇫🇷 FR',2380:'🇮🇹 IT',2724:'🇪🇸 ES',2528:'🇳🇱 NL',2752:'🇸🇪 SE',2784:'🇦🇪 AE',2356:'🇮🇳 IN',2076:'🇧🇷 BR'};
-    // Build GEO data from multiple location requests
     const geoList = [
-      {code:2826, name:'🇬🇧 UK'}, {code:2840, name:'🇺🇸 US'},
-      {code:2124, name:'🇨🇦 CA'}, {code:2036, name:'🇦🇺 AU'},
-      {code:2276, name:'🇩🇪 DE'}
+      {code:2826, name:'UK'}, {code:2840, name:'US'},
+      {code:2124, name:'CA'}, {code:2036, name:'AU'},
+      {code:2276, name:'DE'}, {code:2804, name:'UA'},
+      {code:2250, name:'FR'}, {code:2380, name:'IT'},
+      {code:2724, name:'ES'}, {code:2528, name:'NL'},
+      {code:2752, name:'SE'}, {code:2356, name:'IN'},
+      {code:2076, name:'BR'}, {code:2616, name:'PL'},
+      {code:2784, name:'AE'}
     ];
     for (const geo of geoList) {
       try {
         const gr = await axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
           [{ target, location_code: geo.code, language_code: 'en' }], { headers });
-        const metrics = gr?.data?.tasks?.[0]?.result?.[0]?.metrics?.organic || {};
-        if (metrics.etv > 0) geoData.push({ geo: geo.name, traffic: Math.round(metrics.etv), keywords: metrics.count || 0 });
-      } catch(e) { /* skip */ }
+        const gItems = gr?.data?.tasks?.[0]?.result?.[0]?.items || [];
+        const gMetrics = gItems[0]?.metrics?.organic || gr?.data?.tasks?.[0]?.result?.[0]?.metrics?.organic || {};
+        if (gMetrics.etv > 0) geoData.push({ geo: geo.name, traffic: Math.round(gMetrics.etv), keywords: gMetrics.count || 0 });
+      } catch(e) {}
     }
     geoData.sort((a,b) => b.traffic - a.traffic);
+
+    // Referring domains
+    let referrers = [];
+    try {
+      const refRes = await axios.post(`${DFORSEO_BASE}/backlinks/referring_domains/live`,
+        [{ target, limit: 15, order_by: ['rank,desc'] }], { headers });
+      const refItems = refRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
+      referrers = refItems.map(r => ({ domain: r.domain||'', rank: r.rank||0, backlinks: r.backlinks||0, dofollow: r.dofollow||false }));
+      console.log('Referrers:', referrers.length);
+    } catch(e) { console.log('Referrers error:', e.message); }
 
     // Build competitor traffic history (last 12 months simulated from current data)
     const competitorHistory = competitors.slice(0,5).map(c => ({
@@ -1292,6 +1306,7 @@ app.post('/api/site-audit', async (req, res) => {
         competitors,
         pages,
         geo: geoData,
+        referrers,
         competitor_history: competitorHistory
       };
     console.log('FINAL organic_traffic:', Math.round(organic.etv||0), 'keywords:', organic.count||0);
@@ -1317,6 +1332,7 @@ app.post('/api/site-audit', async (req, res) => {
         competitors,
         pages,
         geo: geoData,
+        referrers,
         competitor_history: competitorHistory
       }
     });
