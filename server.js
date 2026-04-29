@@ -1400,6 +1400,7 @@ app.post('/api/site-audit', async (req, res) => {
           dofollow: backlinks.dofollow || 0
         },
         keywords,
+        intent_breakdown: intentData,
         competitors,
         pages,
         geo: geoData,
