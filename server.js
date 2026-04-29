@@ -1202,11 +1202,12 @@ app.post('/api/site-audit', async (req, res) => {
     console.log('Pages:', pagesRes?.data?.tasks?.[0]?.status_code);
 
     // Parse overview — DataForSEO returns data in items array
-    // result[0] IS the item directly (no items array)
-    const overviewItem = overviewRes?.data?.tasks?.[0]?.result?.[0] || {};
-    console.log('Overview item keys:', Object.keys(overviewItem).slice(0,10));
-    const organic = overviewItem?.metrics?.organic || overviewItem?.organic || {};
-    const paid = overviewItem?.metrics?.paid || overviewItem?.paid || {};
+    // result[0] has items array — metrics are in items[0]
+    const overviewResult = overviewRes?.data?.tasks?.[0]?.result?.[0] || {};
+    const overviewItem = overviewResult?.items?.[0] || overviewResult || {};
+    console.log('Overview item keys:', Object.keys(overviewResult).slice(0,10));
+    const organic = overviewItem?.metrics?.organic || overviewResult?.metrics?.organic || {};
+    const paid = overviewItem?.metrics?.paid || overviewResult?.metrics?.paid || {};
     console.log('Organic:', JSON.stringify(organic).slice(0, 200));
     console.log('Paid:', JSON.stringify(paid).slice(0, 200));
 
