@@ -1185,7 +1185,7 @@ app.post('/api/site-audit', async (req, res) => {
         [{ target, location_code, language_code, limit: 20, order_by: ['keyword_data.keyword_info.search_volume,desc'] }], { headers })),
       // 3. Backlinks overview — correct endpoint
       safe(() => axios.post(`${DFORSEO_BASE}/backlinks/summary/live`,
-        [{ target, include_subdomains: true }], { headers })),
+        [{ target, limit: 1 }], { headers })),
       // 4. Organic competitors with historical data
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/competitors_domain/live`,
         [{ target, location_code, language_code, limit: 5 }], { headers })),
@@ -1219,8 +1219,10 @@ app.post('/api/site-audit', async (req, res) => {
     }));
 
     // Parse backlinks
-    const blResult = backlinksRes?.data?.tasks?.[0]?.result?.[0] || {};
-    console.log('Backlinks result keys:', Object.keys(blResult));
+    const blTask = backlinksRes?.data?.tasks?.[0];
+    console.log('Backlinks status:', blTask?.status_code, blTask?.status_message);
+    console.log('Backlinks result:', JSON.stringify(blTask?.result?.[0] || {}).slice(0, 300));
+    const blResult = blTask?.result?.[0] || {};
     const backlinks = {
       total: blResult.total_count || blResult.backlinks || 0,
       referring_domains: blResult.referring_domains || blResult.domains_count || 0,
