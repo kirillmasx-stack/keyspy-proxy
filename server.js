@@ -1166,11 +1166,17 @@ app.post('/api/meta-ads', async (req, res) => {
 // Full domain SEO intelligence — traffic, keywords, backlinks, competitors
 app.post('/api/site-audit', async (req, res) => {
   try {
-    const { domain, location_code = 2826, language_code = 'en' } = req.body;
+    const { domain, language_code = 'en' } = req.body;
+    let { location_code = 0 } = req.body;
+    location_code = parseInt(location_code) || 0;
     if (!domain) return res.status(400).json({ error: 'domain is required' });
 
     const target = domain.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-    console.log('Site audit for:', target);
+    const isGlobal = !location_code || location_code === 0;
+    // For global: aggregate top 5 markets (US, UK, IN, BR, DE)
+    const GLOBAL_GEOS = [2840, 2826, 2356, 2076, 2276];
+    const effectiveLocation = isGlobal ? 2840 : location_code;
+    console.log('Site audit for:', target, isGlobal ? '[GLOBAL - aggregating 5 markets]' : '[GEO:'+location_code+']');
 
     // Run all requests in parallel
     const headers = { Authorization: getAuthHeader(), 'Content-Type': 'application/json' };
@@ -1179,16 +1185,16 @@ app.post('/api/site-audit', async (req, res) => {
     const [overviewRes, keywordsRes, backlinksRes, competitorsRes, pagesRes, geoRes] = await Promise.all([
       // 1. Domain overview
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
-        [{ target, location_code, language_code }], { headers })),
+        [{ target, location_code: effectiveLocation, language_code }], { headers })),
       // 2. Top organic keywords with intent
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/ranked_keywords/live`,
-        [{ target, location_code, language_code, limit: 100, order_by: ['keyword_data.keyword_info.search_volume,desc'] }], { headers })),
+        [{ target, location_code: effectiveLocation, language_code, limit: 100, order_by: ['keyword_data.keyword_info.search_volume,desc'] }], { headers })),
       // 3. Backlinks overview — correct endpoint
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
         [{ target, location_code: 2840, language_code: 'en' }], { headers })),
       // 4. Organic competitors — use US for biggest traffic numbers
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/competitors_domain/live`,
-        [{ target, location_code: 2840, language_code: 'en', limit: 5 }], { headers })),
+        [{ target, location_code: effectiveLocation, language_code, limit: 5 }], { headers })),
       // 5. Top pages by traffic
       safe(() => Promise.resolve(null)),
       // 6. placeholder
@@ -1366,7 +1372,9 @@ app.post('/api/site-audit', async (req, res) => {
         domain: target,
         overview: {
           organic_keywords: organic.count || 0,
-          organic_traffic: Math.round(organic.etv || 0),
+          organic_traffic: isGlobal
+            ? geoData.reduce((s, g) => s + g.traffic, 0) || Math.round(organic.etv || 0)
+            : Math.round(organic.etv || 0),
           organic_traffic_value: Math.round(organic.estimated_paid_traffic_cost || organic.etv * 2 || 0),
           paid_keywords: paid.count || 0,
           paid_traffic: Math.round(paid.etv || 0)
@@ -1388,7 +1396,9 @@ app.post('/api/site-audit', async (req, res) => {
         domain: target,
         overview: {
           organic_keywords: organic.count || 0,
-          organic_traffic: Math.round(organic.etv || 0),
+          organic_traffic: isGlobal
+            ? geoData.reduce((s, g) => s + g.traffic, 0) || Math.round(organic.etv || 0)
+            : Math.round(organic.etv || 0),
           organic_traffic_value: Math.round(organic.estimated_paid_traffic_cost || organic.etv * 2 || 0),
           paid_keywords: paid.count || 0,
           paid_traffic: Math.round(paid.etv || 0)
