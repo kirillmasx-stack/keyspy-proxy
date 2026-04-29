@@ -1202,8 +1202,8 @@ app.post('/api/site-audit', async (req, res) => {
     console.log('Pages:', pagesRes?.data?.tasks?.[0]?.status_code);
 
     // Parse overview — DataForSEO returns data in items array
-    const overviewItems = overviewRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
-    const overviewItem = overviewItems[0] || overviewRes?.data?.tasks?.[0]?.result?.[0] || {};
+    // result[0] IS the item directly (no items array)
+    const overviewItem = overviewRes?.data?.tasks?.[0]?.result?.[0] || {};
     console.log('Overview item keys:', Object.keys(overviewItem).slice(0,10));
     const organic = overviewItem?.metrics?.organic || overviewItem?.organic || {};
     const paid = overviewItem?.metrics?.paid || overviewItem?.paid || {};
@@ -1277,7 +1277,23 @@ app.post('/api/site-audit', async (req, res) => {
       traffic: c.organic_traffic
     }));
 
-    console.log('Site audit complete - keywords:', keywords.length, 'competitors:', competitors.length, 'geos:', geoData.length);
+    const responseData = {
+        domain: target,
+        overview: {
+          organic_keywords: organic.count || 0,
+          organic_traffic: Math.round(organic.etv || 0),
+          organic_traffic_value: Math.round(organic.estimated_paid_traffic_cost || organic.etv * 2 || 0),
+          paid_keywords: paid.count || 0,
+          paid_traffic: Math.round(paid.etv || 0)
+        },
+        backlinks,
+        keywords,
+        competitors,
+        pages,
+        geo: geoData,
+        competitor_history: competitorHistory
+      };
+    console.log('FINAL organic_traffic:', Math.round(organic.etv||0), 'keywords:', organic.count||0);
 
     res.json({
       success: true,
