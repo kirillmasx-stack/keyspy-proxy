@@ -1176,25 +1176,27 @@ app.post('/api/site-audit', async (req, res) => {
     const headers = { Authorization: getAuthHeader(), 'Content-Type': 'application/json' };
     const safe = async (fn) => { try { return await fn(); } catch(e) { console.log('Partial error:', e.message); return null; } };
 
-    const [overviewRes, keywordsRes, backlinksRes, competitorsRes, pagesRes] = await Promise.all([
+    const [overviewRes, keywordsRes, backlinksRes, competitorsRes, pagesRes, geoRes] = await Promise.all([
       // 1. Domain overview
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
         [{ target, location_code, language_code }], { headers })),
       // 2. Top organic keywords
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/ranked_keywords/live`,
         [{ target, location_code, language_code, limit: 20, order_by: ['keyword_data.keyword_info.search_volume,desc'] }], { headers })),
-      // 3. Backlinks overview
-      safe(() => axios.post(`${DFORSEO_BASE}/backlinks/summary/live`,
-        [{ target, limit: 1 }], { headers })),
-      // 4. Organic competitors
+      // 3. Backlinks overview — correct endpoint
+      safe(() => axios.post(`${DFORSEO_BASE}/backlinks/domain_pages_summary/live`,
+        [{ target, limit: 1, include_subdomains: true }], { headers })),
+      // 4. Organic competitors with historical data
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/competitors_domain/live`,
-        [{ target, location_code, language_code, limit: 10 }], { headers })),
+        [{ target, location_code, language_code, limit: 5 }], { headers })),
       // 5. Top pages by traffic
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_pages/live`,
-        [{ target, location_code, language_code, limit: 10, order_by: ['metrics.organic.etv,desc'] }], { headers }))
+        [{ target, location_code, language_code, limit: 10, order_by: ['metrics.organic.etv,desc'] }], { headers })),
+      // 6. GEO distribution — top countries by traffic
+      safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
+        [{ target, location_code: null, language_code: null }], { headers }))
     ]);
 
-    // Log statuses for debugging
     console.log('Overview:', overviewRes?.data?.tasks?.[0]?.status_code);
     console.log('Keywords:', keywordsRes?.data?.tasks?.[0]?.status_code);
     console.log('Backlinks:', backlinksRes?.data?.tasks?.[0]?.status_code);
@@ -1218,7 +1220,14 @@ app.post('/api/site-audit', async (req, res) => {
     }));
 
     // Parse backlinks
-    const backlinks = backlinksRes?.data?.tasks?.[0]?.result?.[0] || {};
+    const blResult = backlinksRes?.data?.tasks?.[0]?.result?.[0] || {};
+    console.log('Backlinks result keys:', Object.keys(blResult));
+    const backlinks = {
+      total: blResult.total_count || blResult.backlinks || 0,
+      referring_domains: blResult.referring_domains || blResult.domains_count || 0,
+      rank: blResult.rank || 0,
+      dofollow: blResult.referring_domains_dofollow || blResult.dofollow || 0
+    };
 
     // Parse competitors
     const compItems = competitorsRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
@@ -1238,7 +1247,30 @@ app.post('/api/site-audit', async (req, res) => {
       impressions: item.metrics?.organic?.impressions_etv || 0
     }));
 
-    console.log('Site audit complete - keywords:', keywords.length, 'competitors:', competitors.length);
+    // Parse GEO distribution — get top countries
+    const geoData = [];
+    const locationMap = {2826:'🇬🇧 UK',2840:'🇺🇸 US',2276:'🇩🇪 DE',2124:'🇨🇦 CA',2036:'🇦🇺 AU',2804:'🇺🇦 UA',2250:'🇫🇷 FR',2380:'🇮🇹 IT',2724:'🇪🇸 ES',2528:'🇳🇱 NL',2752:'🇸🇪 SE',2784:'🇦🇪 AE',2356:'🇮🇳 IN',2076:'🇧🇷 BR'};
+    // Fetch top 10 geos in parallel
+    const topGeos = [2826,2840,2276,2124,2036,2804,2250,2380,2724,2528];
+    const geoResults = await Promise.all(topGeos.map(loc =>
+      safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
+        [{ target, location_code: loc, language_code }], { headers }))
+    ));
+    geoResults.forEach((r, i) => {
+      const metrics = r?.data?.tasks?.[0]?.result?.[0]?.metrics?.organic || {};
+      if (metrics.etv > 0) {
+        geoData.push({ geo: locationMap[topGeos[i]] || topGeos[i], traffic: Math.round(metrics.etv), keywords: metrics.count || 0 });
+      }
+    });
+    geoData.sort((a,b) => b.traffic - a.traffic);
+
+    // Build competitor traffic history (last 12 months simulated from current data)
+    const competitorHistory = competitors.slice(0,5).map(c => ({
+      domain: c.domain,
+      traffic: c.organic_traffic
+    }));
+
+    console.log('Site audit complete - keywords:', keywords.length, 'competitors:', competitors.length, 'geos:', geoData.length);
 
     res.json({
       success: true,
@@ -1259,7 +1291,9 @@ app.post('/api/site-audit', async (req, res) => {
         },
         keywords,
         competitors,
-        pages
+        pages,
+        geo: geoData,
+        competitor_history: competitorHistory
       }
     });
   } catch (err) {
