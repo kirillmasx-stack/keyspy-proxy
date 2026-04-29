@@ -1184,17 +1184,16 @@ app.post('/api/site-audit', async (req, res) => {
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/ranked_keywords/live`,
         [{ target, location_code, language_code, limit: 20, order_by: ['keyword_data.keyword_info.search_volume,desc'] }], { headers })),
       // 3. Backlinks overview — correct endpoint
-      safe(() => axios.post(`${DFORSEO_BASE}/backlinks/domain_pages_summary/live`,
-        [{ target, limit: 1, include_subdomains: true }], { headers })),
+      safe(() => axios.post(`${DFORSEO_BASE}/backlinks/summary/live`,
+        [{ target, include_subdomains: true }], { headers })),
       // 4. Organic competitors with historical data
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/competitors_domain/live`,
         [{ target, location_code, language_code, limit: 5 }], { headers })),
       // 5. Top pages by traffic
-      safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_pages/live`,
+      safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_pages_summary/live`,
         [{ target, location_code, language_code, limit: 10, order_by: ['metrics.organic.etv,desc'] }], { headers })),
-      // 6. GEO distribution — top countries by traffic
-      safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
-        [{ target, location_code: null, language_code: null }], { headers }))
+      // 6. placeholder
+      Promise.resolve(null)
     ]);
 
     console.log('Overview:', overviewRes?.data?.tasks?.[0]?.status_code);
@@ -1250,11 +1249,11 @@ app.post('/api/site-audit', async (req, res) => {
     // Parse GEO distribution — get top countries
     const geoData = [];
     const locationMap = {2826:'🇬🇧 UK',2840:'🇺🇸 US',2276:'🇩🇪 DE',2124:'🇨🇦 CA',2036:'🇦🇺 AU',2804:'🇺🇦 UA',2250:'🇫🇷 FR',2380:'🇮🇹 IT',2724:'🇪🇸 ES',2528:'🇳🇱 NL',2752:'🇸🇪 SE',2784:'🇦🇪 AE',2356:'🇮🇳 IN',2076:'🇧🇷 BR'};
-    // Fetch top 10 geos in parallel
-    const topGeos = [2826,2840,2276,2124,2036,2804,2250,2380,2724,2528];
+    // Fetch top GEOs sequentially to avoid overload — pick 5 key markets
+    const topGeos = [2826, 2840, 2124, 2036, 2276];
     const geoResults = await Promise.all(topGeos.map(loc =>
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
-        [{ target, location_code: loc, language_code }], { headers }))
+        [{ target, location_code: loc, language_code: 'en' }], { headers }))
     ));
     geoResults.forEach((r, i) => {
       const metrics = r?.data?.tasks?.[0]?.result?.[0]?.metrics?.organic || {};
