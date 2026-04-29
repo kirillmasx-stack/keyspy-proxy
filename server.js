@@ -1174,7 +1174,7 @@ app.post('/api/site-audit', async (req, res) => {
     const target = domain.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
     const isGlobal = !location_code || location_code === 0;
     let effectiveLocation = isGlobal ? 2840 : location_code;
-    console.log('Site audit for:', target, isGlobal ? '[GLOBAL]' : '[GEO:'+location_code+']');
+    console.log('Site audit for:', target, 'location_code:', location_code, 'isGlobal:', isGlobal, 'effectiveLocation:', effectiveLocation);
 
     // Headers and safe helper must be defined first
     const headers = { Authorization: getAuthHeader(), 'Content-Type': 'application/json' };
