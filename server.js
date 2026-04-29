@@ -1190,8 +1190,7 @@ app.post('/api/site-audit', async (req, res) => {
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/competitors_domain/live`,
         [{ target, location_code, language_code, limit: 5 }], { headers })),
       // 5. Top pages by traffic
-      safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_pages_summary/live`,
-        [{ target, location_code, language_code, limit: 10, order_by: ['metrics.organic.etv,desc'] }], { headers })),
+      safe(() => Promise.resolve(null)),
       // 6. placeholder
       Promise.resolve(null)
     ]);
@@ -1203,9 +1202,13 @@ app.post('/api/site-audit', async (req, res) => {
     console.log('Pages:', pagesRes?.data?.tasks?.[0]?.status_code);
 
     // Parse overview (safe null checks)
-    const overview = overviewRes?.data?.tasks?.[0]?.result?.[0]?.metrics || {};
+    const overviewResult = overviewRes?.data?.tasks?.[0]?.result?.[0] || {};
+    console.log('Overview result keys:', Object.keys(overviewResult));
+    const overview = overviewResult?.metrics || {};
     const organic = overview.organic || {};
     const paid = overview.paid || {};
+    console.log('Organic:', JSON.stringify(organic).slice(0, 200));
+    console.log('Paid:', JSON.stringify(paid).slice(0, 200));
 
     // Parse keywords
     const kwItems = keywordsRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
@@ -1287,10 +1290,10 @@ app.post('/api/site-audit', async (req, res) => {
           paid_traffic: Math.round(paid.etv || 0)
         },
         backlinks: {
-          total: backlinks.total_count || 0,
+          total: backlinks.total || 0,
           referring_domains: backlinks.referring_domains || 0,
           rank: backlinks.rank || 0,
-          dofollow: backlinks.referring_domains_dofollow || 0
+          dofollow: backlinks.dofollow || 0
         },
         keywords,
         competitors,
