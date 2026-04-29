@@ -1245,7 +1245,7 @@ app.post('/api/site-audit', async (req, res) => {
     ]);
     const compItems = competitorsRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
     const filteredItems = compItems
-      .filter(item => item.domain && !SKIP_DOMAINS.has(item.domain))
+      .filter(item => item.domain && !SKIP_DOMAINS.has(item.domain) && item.domain !== target)
       .sort((a, b) => (b.intersections || 0) - (a.intersections || 0))
       .slice(0, 5);
 
@@ -1256,8 +1256,10 @@ app.post('/api/site-audit', async (req, res) => {
     ));
 
     const competitors = filteredItems.map((item, i) => {
-      const tItems = compTrafficResults[i]?.data?.tasks?.[0]?.result?.[0]?.items || [];
-      const tMetrics = tItems[0]?.metrics?.organic || {};
+      const tTask = compTrafficResults[i]?.data?.tasks?.[0];
+      const tItems = tTask?.result?.[0]?.items || [];
+      const tMetrics = tItems[0]?.metrics?.organic || tTask?.result?.[0]?.metrics?.organic || {};
+      console.log('Comp', item.domain, 'status:', tTask?.status_code, 'etv:', tMetrics.etv);
       return {
         domain: item.domain || '',
         common_keywords: item.intersections || 0,
@@ -1265,7 +1267,7 @@ app.post('/api/site-audit', async (req, res) => {
         organic_traffic: Math.round(tMetrics.etv || 0)
       };
     });
-    console.log('Competitors with traffic:', competitors.map(c => c.domain + ':' + c.organic_traffic).join(', '));
+    console.log('Competitors final:', competitors.map(c => c.domain + ':' + c.organic_traffic).join(', '));
 
     // Parse pages
     const pagesItems = pagesRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
