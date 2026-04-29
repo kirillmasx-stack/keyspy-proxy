@@ -1276,15 +1276,24 @@ app.post('/api/site-audit', async (req, res) => {
     }
     geoData.sort((a,b) => b.traffic - a.traffic);
 
-    // Referring domains
+    // Referring domains via Backlinks API
     let referrers = [];
     try {
       const refRes = await axios.post(`${DFORSEO_BASE}/backlinks/referring_domains/live`,
         [{ target, limit: 100, order_by: ['rank,desc'], include_subdomains: true }], { headers });
       const refTask = refRes?.data?.tasks?.[0];
-      console.log('Referrers status:', refTask?.status_code, refTask?.status_message);
+      console.log('Referrers status:', refTask?.status_code);
       const refItems = refTask?.result?.[0]?.items || [];
-      referrers = refItems.map(r => ({ domain: r.domain||'', rank: r.rank||0, backlinks: r.backlinks||0, dofollow: r.dofollow||false, dofollow_backlinks: r.dofollow_backlinks||0, referring_pages: r.referring_pages||0, country: r.country||'' }));
+      referrers = refItems.map(r => ({
+        domain: r.domain || '',
+        rank: r.rank || 0,
+        backlinks: r.backlinks || 0,
+        dofollow: r.dofollow || false,
+        dofollow_backlinks: r.dofollow_backlinks || 0,
+        referring_pages: r.referring_pages || 0,
+        country: r.country || '',
+        organic_traffic: 0
+      }));
       console.log('Referrers found:', referrers.length);
     } catch(e) { console.log('Referrers error:', e.message); }
 
