@@ -1180,9 +1180,9 @@ app.post('/api/site-audit', async (req, res) => {
       // 1. Domain overview
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
         [{ target, location_code, language_code }], { headers })),
-      // 2. Top organic keywords
+      // 2. Top organic keywords with intent
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/ranked_keywords/live`,
-        [{ target, location_code, language_code, limit: 20, order_by: ['keyword_data.keyword_info.search_volume,desc'] }], { headers })),
+        [{ target, location_code, language_code, limit: 100, order_by: ['keyword_data.keyword_info.search_volume,desc'] }], { headers })),
       // 3. Backlinks overview — correct endpoint
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
         [{ target, location_code: 2840, language_code: 'en' }], { headers })),
@@ -1211,16 +1211,50 @@ app.post('/api/site-audit', async (req, res) => {
     console.log('Organic:', JSON.stringify(organic).slice(0, 200));
     console.log('Paid:', JSON.stringify(paid).slice(0, 200));
 
-    // Parse keywords
+    // Parse keywords with intent
     const kwItems = keywordsRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
-    const keywords = kwItems.map(item => ({
+    const keywords = kwItems.slice(0, 20).map(item => ({
       keyword: item.keyword_data?.keyword || '',
       position: item.ranked_serp_element?.serp_item?.rank_absolute || 0,
       volume: item.keyword_data?.keyword_info?.search_volume || 0,
       cpc: item.keyword_data?.keyword_info?.cpc || 0,
       traffic: item.ranked_serp_element?.serp_item?.etv || 0,
-      url: item.ranked_serp_element?.serp_item?.url || ''
+      url: item.ranked_serp_element?.serp_item?.url || '',
+      intent: item.keyword_data?.search_intent_info?.main_intent || 'informational'
     }));
+
+    // Aggregate keywords by intent for the intent widget
+    const intentMap = {};
+    kwItems.forEach(item => {
+      const intent = item.keyword_data?.search_intent_info?.main_intent || 'informational';
+      const traffic = item.ranked_serp_element?.serp_item?.etv || 0;
+      const volume = item.keyword_data?.keyword_info?.search_volume || 0;
+      if (!intentMap[intent]) intentMap[intent] = { keywords: 0, traffic: 0, volume: 0 };
+      intentMap[intent].keywords++;
+      intentMap[intent].traffic += traffic;
+      intentMap[intent].volume += volume;
+    });
+    // Also check for branded (domain name appears in keyword)
+    const domainName = target.replace(/\.(com|org|net|ca|co\.uk|io).*/, '').split('.')[0].toLowerCase();
+    let brandedCount = 0, brandedTraffic = 0;
+    kwItems.forEach(item => {
+      const kw = (item.keyword_data?.keyword || '').toLowerCase();
+      if (kw.includes(domainName)) {
+        brandedCount++;
+        brandedTraffic += item.ranked_serp_element?.serp_item?.etv || 0;
+      }
+    });
+    if (brandedCount > 0) intentMap['branded'] = { keywords: brandedCount, traffic: Math.round(brandedTraffic), volume: 0 };
+
+    // Format intent data sorted by keyword count
+    const intentData = Object.entries(intentMap)
+      .map(([intent, data]) => ({
+        intent,
+        keywords: data.keywords,
+        traffic: Math.round(data.traffic),
+        pct: Math.round(data.keywords / Math.max(kwItems.length, 1) * 100)
+      }))
+      .sort((a, b) => b.keywords - a.keywords);
 
     // Parse backlinks — using domain_rank_overview US data
     const blTask = backlinksRes?.data?.tasks?.[0];
@@ -1339,6 +1373,7 @@ app.post('/api/site-audit', async (req, res) => {
         },
         backlinks,
         keywords,
+        intent_breakdown: intentData,
         competitors,
         pages,
         geo: geoData,
