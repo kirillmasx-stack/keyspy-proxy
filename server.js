@@ -1235,24 +1235,34 @@ app.post('/api/site-audit', async (req, res) => {
       dofollow: Math.round((blOrganic.count || 0) * 0.6)
     };
 
-    // Parse competitors — get their domains first
+    // Parse competitors — keep only relevant ones by filtering generic domains
+    // and sorting by intersections (common keywords = relevance signal)
+    const SKIP_DOMAINS = new Set([
+      'youtube.com','wikipedia.org','reddit.com','facebook.com','twitter.com',
+      'instagram.com','tiktok.com','google.com','amazon.com','apple.com',
+      'microsoft.com','linkedin.com','pinterest.com','tumblr.com','quora.com',
+      'medium.com','wordpress.com','blogspot.com','news.com','bbc.com','cnn.com'
+    ]);
     const compItems = competitorsRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
-    const compDomains = compItems.slice(0,5).map(item => item.domain).filter(Boolean);
+    const filteredItems = compItems
+      .filter(item => item.domain && !SKIP_DOMAINS.has(item.domain))
+      .sort((a, b) => (b.intersections || 0) - (a.intersections || 0))
+      .slice(0, 5);
 
-    // Fetch real traffic for each competitor domain
-    const compTrafficResults = await Promise.all(compDomains.map(domain =>
+    // Fetch real traffic per GEO for each competitor
+    const compTrafficResults = await Promise.all(filteredItems.map(item =>
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
-        [{ target: domain, location_code, language_code }], { headers }))
+        [{ target: item.domain, location_code, language_code }], { headers }))
     ));
 
-    const competitors = compItems.slice(0,5).map((item, i) => {
-      const trafficItems = compTrafficResults[i]?.data?.tasks?.[0]?.result?.[0]?.items || [];
-      const trafficMetrics = trafficItems[0]?.metrics?.organic || {};
+    const competitors = filteredItems.map((item, i) => {
+      const tItems = compTrafficResults[i]?.data?.tasks?.[0]?.result?.[0]?.items || [];
+      const tMetrics = tItems[0]?.metrics?.organic || {};
       return {
         domain: item.domain || '',
         common_keywords: item.intersections || 0,
-        organic_keywords: trafficMetrics.count || item.metrics?.organic?.count || 0,
-        organic_traffic: Math.round(trafficMetrics.etv || 0)
+        organic_keywords: tMetrics.count || 0,
+        organic_traffic: Math.round(tMetrics.etv || 0)
       };
     });
     console.log('Competitors with traffic:', competitors.map(c => c.domain + ':' + c.organic_traffic).join(', '));
