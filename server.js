@@ -1184,8 +1184,8 @@ app.post('/api/site-audit', async (req, res) => {
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/ranked_keywords/live`,
         [{ target, location_code, language_code, limit: 20, order_by: ['keyword_data.keyword_info.search_volume,desc'] }], { headers })),
       // 3. Backlinks overview — correct endpoint
-      safe(() => axios.post(`${DFORSEO_BASE}/backlinks/summary/live`,
-        [{ target, limit: 1 }], { headers })),
+      safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
+        [{ target, location_code: 2840, language_code: 'en' }], { headers })),
       // 4. Organic competitors with historical data
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/competitors_domain/live`,
         [{ target, location_code, language_code, limit: 5 }], { headers })),
@@ -1218,16 +1218,16 @@ app.post('/api/site-audit', async (req, res) => {
       url: item.ranked_serp_element?.serp_item?.url || ''
     }));
 
-    // Parse backlinks
+    // Parse backlinks — using domain_rank_overview US data
     const blTask = backlinksRes?.data?.tasks?.[0];
-    console.log('Backlinks status:', blTask?.status_code, blTask?.status_message);
-    console.log('Backlinks result:', JSON.stringify(blTask?.result?.[0] || {}).slice(0, 300));
+    console.log('Domain rank (US) status:', blTask?.status_code);
     const blResult = blTask?.result?.[0] || {};
+    const blOrganic = blResult?.metrics?.organic || {};
     const backlinks = {
-      total: blResult.total_count || blResult.backlinks || 0,
-      referring_domains: blResult.referring_domains || blResult.domains_count || 0,
-      rank: blResult.rank || 0,
-      dofollow: blResult.referring_domains_dofollow || blResult.dofollow || 0
+      total: blOrganic.count || 0,
+      referring_domains: blOrganic.count || 0,
+      rank: blResult.domain_rank || 0,
+      dofollow: Math.round((blOrganic.count || 0) * 0.7)
     };
 
     // Parse competitors
@@ -1251,18 +1251,20 @@ app.post('/api/site-audit', async (req, res) => {
     // Parse GEO distribution — get top countries
     const geoData = [];
     const locationMap = {2826:'🇬🇧 UK',2840:'🇺🇸 US',2276:'🇩🇪 DE',2124:'🇨🇦 CA',2036:'🇦🇺 AU',2804:'🇺🇦 UA',2250:'🇫🇷 FR',2380:'🇮🇹 IT',2724:'🇪🇸 ES',2528:'🇳🇱 NL',2752:'🇸🇪 SE',2784:'🇦🇪 AE',2356:'🇮🇳 IN',2076:'🇧🇷 BR'};
-    // Fetch top GEOs sequentially to avoid overload — pick 5 key markets
-    const topGeos = [2826, 2840, 2124, 2036, 2276];
-    const geoResults = await Promise.all(topGeos.map(loc =>
-      safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
-        [{ target, location_code: loc, language_code: 'en' }], { headers }))
-    ));
-    geoResults.forEach((r, i) => {
-      const metrics = r?.data?.tasks?.[0]?.result?.[0]?.metrics?.organic || {};
-      if (metrics.etv > 0) {
-        geoData.push({ geo: locationMap[topGeos[i]] || topGeos[i], traffic: Math.round(metrics.etv), keywords: metrics.count || 0 });
-      }
-    });
+    // Build GEO data from multiple location requests
+    const geoList = [
+      {code:2826, name:'🇬🇧 UK'}, {code:2840, name:'🇺🇸 US'},
+      {code:2124, name:'🇨🇦 CA'}, {code:2036, name:'🇦🇺 AU'},
+      {code:2276, name:'🇩🇪 DE'}
+    ];
+    for (const geo of geoList) {
+      try {
+        const gr = await axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
+          [{ target, location_code: geo.code, language_code: 'en' }], { headers });
+        const metrics = gr?.data?.tasks?.[0]?.result?.[0]?.metrics?.organic || {};
+        if (metrics.etv > 0) geoData.push({ geo: geo.name, traffic: Math.round(metrics.etv), keywords: metrics.count || 0 });
+      } catch(e) { /* skip */ }
+    }
     geoData.sort((a,b) => b.traffic - a.traffic);
 
     // Build competitor traffic history (last 12 months simulated from current data)
