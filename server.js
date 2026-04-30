@@ -520,19 +520,22 @@ app.post('/api/ads-transparency', async (req, res) => {
     }
 
     const items = result.result?.[0]?.items || [];
-    if (items[0]) console.log('Ads item sample:', JSON.stringify(items[0]).slice(0, 500));
     const ads = items.map((item, idx) => ({
       position: item.rank_absolute || idx + 1,
-      advertiser: item.advertiser_name || domain,
-      domain: item.domain || domain,
-      titles: item.title_lines || (item.title ? [item.title] : []),
+      advertiser: item.title || searchQuery,
+      advertiser_id: item.advertiser_id || '',
+      creative_id: item.creative_id || '',
+      domain: searchQuery,
+      format: item.format || 'unknown',
+      preview_url: item.preview_url || '',
+      preview_image: item.preview_image?.url || null,
+      transparency_url: item.url || '',
+      verified: item.verified || false,
+      titles: item.title ? [item.title] : [],
       description: item.description || '',
-      display_url: item.breadcrumb || domain,
-      url: item.url || '',
-      first_seen: item.first_seen || null,
-      last_seen: item.last_seen || null,
-      sitelinks: (item.sitelinks || []).map(s => ({ title: s.title, description: s.description })),
-      callouts: [], promos: [],
+      display_url: item.display_url || searchQuery,
+      first_seen: item.first_shown || item.first_seen || null,
+      last_seen: item.last_shown || item.last_seen || null,
       source: 'transparency'
     }));
 
