@@ -305,6 +305,7 @@ app.post('/api/ads-analyzer', async (req, res) => {
       console.log('Bing ads status:', bingTask?.status_code);
       const bingItems = (bingTask?.result?.[0]?.items || []).filter(i => i.type === 'paid');
       console.log('Bing paid items:', bingItems.length);
+      if (bingItems[0]) console.log('Bing sample:', JSON.stringify(bingItems[0]).slice(0,500));
       ads = bingItems.map((item, idx) => ({
         position: item.rank_absolute || idx + 1,
         keyword: query,
