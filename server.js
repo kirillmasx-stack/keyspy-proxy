@@ -520,7 +520,6 @@ app.post('/api/ads-transparency', async (req, res) => {
     }
 
     const items = result.result?.[0]?.items || [];
-    if (items[0]) console.log('Full item:', JSON.stringify(items[0]));
     const ads = items.map((item, idx) => ({
       position: item.rank_absolute || idx + 1,
       advertiser: item.title || searchQuery,
@@ -528,8 +527,12 @@ app.post('/api/ads-transparency', async (req, res) => {
       creative_id: item.creative_id || '',
       domain: searchQuery,
       format: item.format || 'unknown',
-      preview_url: item.preview_url || '',
+      preview_url: item.preview_url || null,
       preview_image: item.preview_image?.url || null,
+      preview_width: item.preview_image?.width || 348,
+      preview_height: item.preview_image?.height || 180,
+      first_seen: item.first_shown || item.first_seen || null,
+      last_seen: item.last_shown || item.last_seen || null,
       transparency_url: item.url || '',
       verified: item.verified || false,
       titles: item.title ? [item.title] : [],
