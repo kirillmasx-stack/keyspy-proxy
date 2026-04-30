@@ -1269,6 +1269,7 @@ app.post('/api/site-audit', async (req, res) => {
 
     // Parse keywords with intent
     const kwItems = keywordsRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
+    const domainName = target.split('.')[0].toLowerCase();
     const localTermsKw = ['near me','nearby','local','in my area','closest','city','town',
       'london','toronto','new york','sydney','berlin','paris','madrid','amsterdam','dubai','warsaw'];
 
@@ -1293,8 +1294,6 @@ app.post('/api/site-audit', async (req, res) => {
 
     // Aggregate keywords by intent for the intent widget
     const intentMap = {};
-    const domainName = target.replace(/\.(com|org|net|ca|co\.uk|io).*/, '').split('.')[0].toLowerCase();
-
     // Local keywords indicators
     const localTerms = ['near me','near by','local','in my area','closest','nearby','city','town',
       'london','toronto','new york','sydney','berlin','paris','madrid','amsterdam','dubai','warsaw'];
