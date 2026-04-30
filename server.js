@@ -436,9 +436,13 @@ app.post('/api/ads-transparency', async (req, res) => {
     if (!searchQuery) return res.status(400).json({ error: 'Search query is required' });
 
     // Step 1: Find advertiser_ids via ads_advertisers
+    // ads_advertisers: use 'target' for domain, 'keyword' for keyword/advertiser search
     const advPayload = { location_code, language_code, depth: 20 };
-    if (search_type === 'domain') advPayload.target = domain;
-    else advPayload.keyword = keyword || advertiser || searchQuery;
+    if (search_type === 'domain' && domain) {
+      advPayload.target = domain;
+    } else {
+      advPayload.keyword = keyword || advertiser || searchQuery;
+    }
 
     const advRes = await axios.post(
       `${DFORSEO_BASE}/serp/google/ads_advertisers/live/advanced`,
