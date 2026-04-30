@@ -1182,6 +1182,8 @@ app.post('/api/site-audit', async (req, res) => {
 
     // For global mode: probe top GEOs, use #1 as primary for keywords/competitors
     let geoTraffic = [];
+    let _globalKeywords = 0;
+    let _globalTraffic = 0;
     if (isGlobal) {
       const probeGeos = [2840,2826,2356,2076,2276,2124,2036,2804,2724,2528,2752,2784,2616,2380,2250];
       const probeResults = await Promise.all(probeGeos.map(loc =>
@@ -1195,7 +1197,23 @@ app.post('/api/site-audit', async (req, res) => {
         return { loc: probeGeos[i], etv };
       }).filter(g => g.etv > 0).sort((a,b) => b.etv - a.etv);
       effectiveLocation = geoTraffic[0]?.loc || 2840;
+
+      // Fetch full overview for top 5 GEOs to sum organic keywords
+      const top5Locs = geoTraffic.slice(0, 5).map(g => g.loc);
+      const top5Results = await Promise.all(top5Locs.map(loc =>
+        safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/ranked_keywords/live`,
+          [{ target, location_code: loc, language_code: 'en', limit: 1 }], { headers }))
+      ));
+      const globalKeywords = top5Results.reduce((sum, r) => {
+        const result = r?.data?.tasks?.[0]?.result?.[0];
+        return sum + (result?.total_count || 0);
+      }, 0);
+      const globalTraffic = geoTraffic.slice(0, 5).reduce((s, g) => s + g.etv, 0);
+      _globalKeywords = globalKeywords;
+      _globalTraffic = Math.round(globalTraffic);
+      console.log('Global keywords:', _globalKeywords, 'traffic:', _globalTraffic);
     }
+
 
     const [overviewRes, keywordsRes, backlinksRes, competitorsRes, pagesRes, geoRes] = await Promise.all([
       // 1. Domain overview
@@ -1395,11 +1413,11 @@ app.post('/api/site-audit', async (req, res) => {
     const responseData = {
         domain: target,
         overview: {
-          organic_keywords: organic.count || 0,
-          organic_traffic: isGlobal
-            ? geoData.slice(0,7).reduce((s, g) => s + g.traffic, 0) || Math.round(organic.etv || 0)
-            : Math.round(organic.etv || 0),
-          organic_traffic_value: Math.round(organic.estimated_paid_traffic_cost || organic.etv * 2 || 0),
+          organic_keywords: isGlobal && _globalKeywords ? _globalKeywords : (organic.count || 0),
+          organic_traffic: isGlobal && _globalTraffic ? _globalTraffic : Math.round(organic.etv || 0),
+          organic_traffic_value: isGlobal && _globalTraffic
+            ? Math.round(_globalTraffic * 2)
+            : Math.round(organic.estimated_paid_traffic_cost || organic.etv * 2 || 0),
           paid_keywords: paid.count || 0,
           paid_traffic: Math.round(paid.etv || 0)
         },
@@ -1419,11 +1437,11 @@ app.post('/api/site-audit', async (req, res) => {
       data: {
         domain: target,
         overview: {
-          organic_keywords: organic.count || 0,
-          organic_traffic: isGlobal
-            ? geoData.slice(0,7).reduce((s, g) => s + g.traffic, 0) || Math.round(organic.etv || 0)
-            : Math.round(organic.etv || 0),
-          organic_traffic_value: Math.round(organic.estimated_paid_traffic_cost || organic.etv * 2 || 0),
+          organic_keywords: isGlobal && _globalKeywords ? _globalKeywords : (organic.count || 0),
+          organic_traffic: isGlobal && _globalTraffic ? _globalTraffic : Math.round(organic.etv || 0),
+          organic_traffic_value: isGlobal && _globalTraffic
+            ? Math.round(_globalTraffic * 2)
+            : Math.round(organic.estimated_paid_traffic_cost || organic.etv * 2 || 0),
           paid_keywords: paid.count || 0,
           paid_traffic: Math.round(paid.etv || 0)
         },
