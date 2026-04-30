@@ -1246,8 +1246,9 @@ app.post('/api/site-audit', async (req, res) => {
         [{ target, location_code: effectiveLocation, language_code, limit: 5 }], { headers })),
       // 5. Top pages by traffic
       safe(() => Promise.resolve(null)),
-      // 6. placeholder
-      Promise.resolve(null)
+      // 6. Historical rank overview for traffic trend
+      safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/historical_rank_overview/live`,
+        [{ target, location_code: effectiveLocation, language_code }], { headers }))
     ]);
 
     console.log('Overview:', overviewRes?.data?.tasks?.[0]?.status_code);
@@ -1373,6 +1374,20 @@ app.post('/api/site-audit', async (req, res) => {
     });
     console.log('Competitors final:', competitors.map(c => c.domain + ':' + c.organic_traffic).join(', '));
 
+    // Parse historical rank overview for traffic trend
+    const histItems = geoRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
+    console.log('Historical items:', histItems.length, 'status:', geoRes?.data?.tasks?.[0]?.status_code);
+    const trafficHistory = histItems
+      .sort((a, b) => (b.year*12+b.month) - (a.year*12+a.month))
+      .slice(0, 6)
+      .map(item => ({
+        year: item.year,
+        month: item.month,
+        traffic: Math.round(item.metrics?.organic?.etv || 0),
+        keywords: item.metrics?.organic?.count || 0,
+        pos_1: item.metrics?.organic?.pos_1 || 0
+      }));
+
     // Parse pages
     const pagesItems = pagesRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
     const pages = pagesItems.map(item => ({
@@ -1456,6 +1471,7 @@ app.post('/api/site-audit', async (req, res) => {
         backlinks,
         keywords,
         intent_breakdown: intentData,
+        traffic_history: trafficHistory,
         competitors,
         pages,
         geo: geoData,
@@ -1464,33 +1480,9 @@ app.post('/api/site-audit', async (req, res) => {
       };
     console.log('FINAL organic_traffic:', Math.round(organic.etv||0), 'keywords:', organic.count||0);
 
-    // Use previous_etv/previous_rank from ranked_keywords for per-keyword trend
-    if (kwItems[0]) console.log('Trend fields sample:', JSON.stringify(kwItems[0].ranked_serp_element?.serp_item).slice(0,300));
-    kwItems.slice(0, 20).forEach((item, i) => {
-      if (!keywords[i]) return;
-      const serpItem = item.ranked_serp_element?.serp_item;
-      // DataForSEO provides position change flags
-      const posChange = serpItem?.position_type === 'organic' ? 0 : 0;
-      // Use etv difference: current vs previous_etv if available
-      const currEtv   = serpItem?.etv || 0;
-      const prevEtv   = serpItem?.previous_etv || null;
-      const currPos   = serpItem?.rank_absolute || 0;
-      const prevPos   = serpItem?.previous_rank_absolute || null;
-      const vol       = item.keyword_data?.keyword_info?.search_volume || 0;
-
-      const ctrMap = {1:0.28,2:0.16,3:0.11,4:0.08,5:0.06,6:0.05,7:0.04,8:0.03,9:0.025,10:0.02};
-      const getCtr = p => ctrMap[p] || (p <= 20 ? 0.01 : 0.005);
-
-      if (prevEtv !== null) {
-        keywords[i].trend_30d = Math.round(currEtv - prevEtv);
-      } else if (prevPos !== null) {
-        keywords[i].trend_30d = Math.round(vol * (getCtr(currPos) - getCtr(prevPos)));
-      } else {
-        keywords[i].trend_30d = null;
-      }
-      keywords[i].trend_1m = keywords[i].trend_30d;
-      keywords[i].trend_3m = null;
-    });
+    // Trend data: no per-keyword historical endpoint available in DataForSEO Live
+    // Trends will be available via Supabase snapshots after data accumulates
+    keywords.forEach(k => { k.trend_30d = null; k.trend_3m = null; k.trend_1m = null; });
 
 
     res.json({
@@ -1514,6 +1506,7 @@ app.post('/api/site-audit', async (req, res) => {
         },
         keywords,
         intent_breakdown: intentData,
+        traffic_history: trafficHistory,
         competitors,
         pages,
         geo: geoData,
