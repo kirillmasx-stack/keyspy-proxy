@@ -1268,7 +1268,6 @@ app.post('/api/site-audit', async (req, res) => {
 
     // Parse keywords with intent
     const kwItems = keywordsRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
-    console.log('kwItems length:', kwItems.length, 'first monthly:', kwItems[0]?.keyword_data?.keyword_info?.monthly_searches?.length);
     const keywords = kwItems.slice(0, 20).map(item => {
       const monthly = item.keyword_data?.keyword_info?.monthly_searches || [];
       // monthly_searches is sorted newest first: [0]=current, [1]=prev month, [4]=~1month ago
@@ -1465,28 +1464,77 @@ app.post('/api/site-audit', async (req, res) => {
       };
     console.log('FINAL organic_traffic:', Math.round(organic.etv||0), 'keywords:', organic.count||0);
 
-    // Calculate trends from monthly_searches (already in kwItems data)
-    if (kwItems[0]) {
-      const sample = kwItems[0];
-      console.log('Sample kw:', sample.keyword_data?.keyword, 'monthly:', JSON.stringify(sample.keyword_data?.keyword_info?.monthly_searches?.slice(0,3)));
-    }
-    kwItems.slice(0, 20).forEach((item, i) => {
-      const monthly = item.keyword_data?.keyword_info?.monthly_searches || [];
-      const pos = item.ranked_serp_element?.serp_item?.rank_absolute || 0;
-      const currVol = monthly[0]?.search_volume || 0;
-      const vol1m   = monthly[1]?.search_volume || 0;
-      const vol3m   = monthly[3]?.search_volume || 0;
-      // CTR by position
+    // Fetch historical keyword positions using DataForSEO historical endpoint
+    try {
+      const now = new Date();
+      const d30 = new Date(now); d30.setDate(d30.getDate() - 30);
+      const d90 = new Date(now); d90.setDate(d90.getDate() - 90);
+      const fmt = d => d.toISOString().slice(0, 7); // YYYY-MM format
+
+      const topKws = keywords.slice(0, 20).map(k => k.keyword);
+
+      // historical_serp returns positions for domain per keyword per date
+      const [hist30, hist90] = await Promise.all([
+        safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/historical_serp/live`,
+          topKws.map(kw => ({
+            keyword: kw,
+            location_code: effectiveLocation,
+            language_code,
+            date: fmt(d30)
+          })), { headers })),
+        safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/historical_serp/live`,
+          topKws.map(kw => ({
+            keyword: kw,
+            location_code: effectiveLocation,
+            language_code,
+            date: fmt(d90)
+          })), { headers }))
+      ]);
+
+      console.log('Hist30 status:', hist30?.data?.tasks?.[0]?.status_code);
+      console.log('Hist30 sample:', JSON.stringify(hist30?.data?.tasks?.[0]?.result?.[0]).slice(0,200));
+
+      // Build position maps: keyword -> position at that date
+      const buildPosMap = (res) => {
+        const map = {};
+        const tasks = res?.data?.tasks || [];
+        tasks.forEach(task => {
+          const kw = task?.data?.keyword;
+          const items = task?.result?.[0]?.items || [];
+          // Find our domain in results
+          const match = items.find(item =>
+            item.type === 'organic' &&
+            (item.url?.includes(target) || item.domain?.includes(target))
+          );
+          if (kw && match) map[kw] = { pos: match.rank_absolute || 0 };
+        });
+        return map;
+      };
+
+      const map30 = buildPosMap(hist30);
+      const map90 = buildPosMap(hist90);
+      console.log('Hist pos maps - 30d:', Object.keys(map30).length, '90d:', Object.keys(map90).length);
+
       const ctrMap = {1:0.28,2:0.16,3:0.11,4:0.08,5:0.06,6:0.05,7:0.04,8:0.03,9:0.025,10:0.02};
-      const ctr = ctrMap[pos] || (pos <= 20 ? 0.01 : 0.005);
-      if (keywords[i]) {
-        keywords[i].trend_30d = vol1m > 0 && currVol > 0
-          ? Math.round((currVol - vol1m) * ctr) : null;
-        keywords[i].trend_3m  = vol3m > 0 && currVol > 0
-          ? Math.round((currVol - vol3m) * ctr) : null;
-        keywords[i].trend_1m  = keywords[i].trend_30d;
-      }
-    });
+      const getCtr = pos => ctrMap[pos] || (pos <= 20 ? 0.01 : 0);
+
+      keywords.forEach(k => {
+        const vol = k.volume || 0;
+        const currPos = k.position || 0;
+        const currTraffic = Math.round(vol * getCtr(currPos));
+        const prev30 = map30[k.keyword];
+        const prev90 = map90[k.keyword];
+        k.trend_30d = prev30
+          ? Math.round(currTraffic - vol * getCtr(prev30.pos))
+          : null;
+        k.trend_3m = prev90
+          ? Math.round(currTraffic - vol * getCtr(prev90.pos))
+          : null;
+        k.trend_1m = k.trend_30d;
+      });
+    } catch(e) {
+      console.log('Historical trend error:', e.message);
+    }
 
     res.json({
       success: true,
