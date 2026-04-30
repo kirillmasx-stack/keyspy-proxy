@@ -1471,15 +1471,14 @@ app.post('/api/site-audit', async (req, res) => {
       const currVol = monthly[0]?.search_volume || 0;
       const vol1m   = monthly[1]?.search_volume || 0;
       const vol3m   = monthly[3]?.search_volume || 0;
-      // CTR by position (approximate)
+      // CTR by position
       const ctrMap = {1:0.28,2:0.16,3:0.11,4:0.08,5:0.06,6:0.05,7:0.04,8:0.03,9:0.025,10:0.02};
-      const ctr = ctrMap[pos] || (pos <= 20 ? 0.01 : 0);
-      const currTraffic = currVol * ctr;
-      const prev1mTraffic = vol1m * ctr;
-      const prev3mTraffic = vol3m * ctr;
+      const ctr = ctrMap[pos] || (pos <= 20 ? 0.01 : 0.005);
       if (keywords[i]) {
-        keywords[i].trend_30d = vol1m > 0 ? Math.round(currTraffic - prev1mTraffic) : null;
-        keywords[i].trend_7d  = null; // weekly not available from monthly data
+        keywords[i].trend_30d = vol1m > 0 && currVol > 0
+          ? Math.round((currVol - vol1m) * ctr) : null;
+        keywords[i].trend_3m  = vol3m > 0 && currVol > 0
+          ? Math.round((currVol - vol3m) * ctr) : null;
         keywords[i].trend_1m  = keywords[i].trend_30d;
       }
     });
