@@ -430,7 +430,7 @@ function parseAdItem(item) {
 // Gets REAL ads from Google Ads Transparency Center via ads_advertisers + ads_search
 app.post('/api/ads-transparency', async (req, res) => {
   try {
-    const { domain, location_code = 2826, language_code = 'en', date_from, date_to, depth = 40, sort_by = 'newest' } = req.body;
+    const { domain, location_code = 2840, language_code = 'en', date_from, date_to, depth = 40, sort_by = 'newest', platform = '' } = req.body;
     if (!domain) return res.status(400).json({ error: 'domain is required' });
 
     // Step 1: Find advertiser_ids for this domain
@@ -462,22 +462,42 @@ app.post('/api/ads-transparency', async (req, res) => {
       language_code,
       depth: Math.min(depth, 40)
     };
+    if (platform) adsPayload.platform = platform;
     if (date_from) adsPayload.date_from = date_from;
     if (date_to) adsPayload.date_to = date_to;
 
-    const adsRes = await axios.post(
-      `${DFORSEO_BASE}/serp/google/ads_search/live/advanced`,
+    // ads_search only supports Standard method (task_post + poll)
+    const taskRes = await axios.post(
+      `${DFORSEO_BASE}/serp/google/ads_search/task_post`,
       [adsPayload],
       { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
     );
-    const adsTask = adsRes.data?.tasks?.[0];
-    console.log('Ads search status:', adsTask?.status_code, adsTask?.status_message);
+    const taskId = taskRes.data?.tasks?.[0]?.id;
+    const taskStatus = taskRes.data?.tasks?.[0]?.status_code;
+    console.log('Ads search task:', taskId, 'status:', taskStatus);
 
-    if (adsTask?.status_code !== 20000) {
-      return res.status(400).json({ error: adsTask?.status_message || 'Failed to get ads' });
+    if (!taskId || taskStatus !== 20100) {
+      return res.status(400).json({ error: taskRes.data?.tasks?.[0]?.status_message || 'Failed to post task' });
     }
 
-    const items = adsTask.result?.[0]?.items || [];
+    // Poll for results (max 30 seconds, 6 attempts × 5s)
+    let result = null;
+    for (let i = 0; i < 6; i++) {
+      await new Promise(r => setTimeout(r, 5000));
+      const getRes = await axios.get(
+        `${DFORSEO_BASE}/serp/google/ads_search/task_get/advanced/${taskId}`,
+        { headers: { Authorization: getAuthHeader() } }
+      );
+      const t = getRes.data?.tasks?.[0];
+      console.log(`Poll ${i+1}: status=${t?.status_code}`);
+      if (t?.status_code === 20000) { result = t; break; }
+    }
+
+    if (!result) {
+      return res.status(400).json({ error: 'Task timed out. Please try again.' });
+    }
+
+    const items = result.result?.[0]?.items || [];
     const ads = items.map((item, idx) => ({
       position: item.rank_absolute || idx + 1,
       advertiser: item.advertiser_name || domain,
