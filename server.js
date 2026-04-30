@@ -1297,34 +1297,46 @@ app.post('/api/site-audit', async (req, res) => {
 
     // Aggregate keywords by intent for the intent widget
     const intentMap = {};
+    const domainName = target.replace(/\.(com|org|net|ca|co\.uk|io).*/, '').split('.')[0].toLowerCase();
+
+    // Local keywords indicators
+    const localTerms = ['near me','near by','local','in my area','closest','nearby','city','town',
+      'london','toronto','new york','sydney','berlin','paris','madrid','amsterdam','dubai','warsaw'];
+
     kwItems.forEach(item => {
       const intent = item.keyword_data?.search_intent_info?.main_intent || 'informational';
       const traffic = item.ranked_serp_element?.serp_item?.etv || 0;
       const volume = item.keyword_data?.keyword_info?.search_volume || 0;
-      if (!intentMap[intent]) intentMap[intent] = { keywords: 0, traffic: 0, volume: 0 };
+      const kw = (item.keyword_data?.keyword || '').toLowerCase();
+
+      // Main intent bucket
+      if (!intentMap[intent]) intentMap[intent] = { keywords: 0, traffic: 0 };
       intentMap[intent].keywords++;
       intentMap[intent].traffic += traffic;
-      intentMap[intent].volume += volume;
+
+      // Branded vs Non-branded
+      const isBranded = kw.includes(domainName);
+      const brandKey = isBranded ? 'branded' : 'non-branded';
+      if (!intentMap[brandKey]) intentMap[brandKey] = { keywords: 0, traffic: 0 };
+      intentMap[brandKey].keywords++;
+      intentMap[brandKey].traffic += traffic;
+
+      // Local vs Non-local
+      const isLocal = localTerms.some(t => kw.includes(t));
+      const localKey = isLocal ? 'local' : 'non-local';
+      if (!intentMap[localKey]) intentMap[localKey] = { keywords: 0, traffic: 0 };
+      intentMap[localKey].keywords++;
+      intentMap[localKey].traffic += traffic;
     });
-    // Also check for branded (domain name appears in keyword)
-    const domainName = target.replace(/\.(com|org|net|ca|co\.uk|io).*/, '').split('.')[0].toLowerCase();
-    let brandedCount = 0, brandedTraffic = 0;
-    kwItems.forEach(item => {
-      const kw = (item.keyword_data?.keyword || '').toLowerCase();
-      if (kw.includes(domainName)) {
-        brandedCount++;
-        brandedTraffic += item.ranked_serp_element?.serp_item?.etv || 0;
-      }
-    });
-    if (brandedCount > 0) intentMap['branded'] = { keywords: brandedCount, traffic: Math.round(brandedTraffic), volume: 0 };
 
     // Format intent data sorted by keyword count
+    const total = kwItems.length || 1;
     const intentData = Object.entries(intentMap)
       .map(([intent, data]) => ({
         intent,
         keywords: data.keywords,
         traffic: Math.round(data.traffic),
-        pct: Math.round(data.keywords / Math.max(kwItems.length, 1) * 100)
+        pct: Math.round(data.keywords / total * 100)
       }))
       .sort((a, b) => b.keywords - a.keywords);
 
