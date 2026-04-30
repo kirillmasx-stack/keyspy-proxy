@@ -1350,11 +1350,13 @@ app.post('/api/site-audit', async (req, res) => {
 
     // Parse competitors — keep only relevant ones by filtering generic domains
     // and sorting by intersections (common keywords = relevance signal)
+    // Only skip truly generic non-competing domains
     const SKIP_DOMAINS = new Set([
       'youtube.com','wikipedia.org','reddit.com','facebook.com','twitter.com',
       'instagram.com','tiktok.com','google.com','amazon.com','apple.com',
       'microsoft.com','linkedin.com','pinterest.com','tumblr.com','quora.com',
-      'medium.com','wordpress.com','blogspot.com','news.com','bbc.com','cnn.com'
+      'medium.com','wordpress.com','blogspot.com','bbc.com','cnn.com',
+      'forbes.com','businessinsider.com','techcrunch.com'
     ]);
     const compItems = competitorsRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
     const filteredItems = compItems
