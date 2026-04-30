@@ -1464,64 +1464,24 @@ app.post('/api/site-audit', async (req, res) => {
       };
     console.log('FINAL organic_traffic:', Math.round(organic.etv||0), 'keywords:', organic.count||0);
 
-    // Fetch keyword position history for trend calculation
-    const kwHistoryMap = {};
-    if (keywords.length > 0) {
-      try {
-        const now = new Date();
-        const d30 = new Date(now); d30.setDate(d30.getDate() - 30);
-        const d7  = new Date(now); d7.setDate(d7.getDate() - 7);
-        const fmt = d => d.toISOString().slice(0, 10);
-
-        const topKws = keywords.slice(0, 20).map(k => k.keyword);
-
-        // Fetch historical data: 30 days ago and 7 days ago
-        const [hist30, hist7] = await Promise.all([
-          safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/ranked_keywords/live`,
-            [{ target, location_code: effectiveLocation, language_code, limit: 100,
-               date_from: fmt(d30), date_to: fmt(d30),
-               order_by: ['keyword_data.keyword_info.search_volume,desc'] }], { headers })),
-          safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/ranked_keywords/live`,
-            [{ target, location_code: effectiveLocation, language_code, limit: 100,
-               date_from: fmt(d7), date_to: fmt(d7),
-               order_by: ['keyword_data.keyword_info.search_volume,desc'] }], { headers }))
-        ]);
-
-        const parseHistItems = (res) => {
-          const items = res?.data?.tasks?.[0]?.result?.[0]?.items || [];
-          const map = {};
-          items.forEach(item => {
-            const kw = item.keyword_data?.keyword;
-            if (kw) map[kw] = item.ranked_serp_element?.serp_item?.etv || 0;
-          });
-          console.log('Hist items parsed:', Object.keys(map).length, 'status:', res?.data?.tasks?.[0]?.status_code);
-          return map;
-        };
-
-        const map30 = parseHistItems(hist30);
-        const map7  = parseHistItems(hist7);
-
-        keywords.forEach(k => {
-          const curr = k.traffic;
-          const prev30 = map30[k.keyword];
-          const prev7  = map7[k.keyword];
-          kwHistoryMap[k.keyword] = {
-            trend_7d:  prev7  != null ? Math.round(curr - prev7)  : null,
-            trend_30d: prev30 != null ? Math.round(curr - prev30) : null,
-          };
-        });
-        console.log('Keyword history fetched for', Object.keys(kwHistoryMap).length, 'keywords');
-      } catch(e) {
-        console.log('Keyword history error:', e.message);
+    // Calculate trends from monthly_searches (already in kwItems data)
+    kwItems.slice(0, 20).forEach((item, i) => {
+      const monthly = item.keyword_data?.keyword_info?.monthly_searches || [];
+      const pos = item.ranked_serp_element?.serp_item?.rank_absolute || 0;
+      const currVol = monthly[0]?.search_volume || 0;
+      const vol1m   = monthly[1]?.search_volume || 0;
+      const vol3m   = monthly[3]?.search_volume || 0;
+      // CTR by position (approximate)
+      const ctrMap = {1:0.28,2:0.16,3:0.11,4:0.08,5:0.06,6:0.05,7:0.04,8:0.03,9:0.025,10:0.02};
+      const ctr = ctrMap[pos] || (pos <= 20 ? 0.01 : 0);
+      const currTraffic = currVol * ctr;
+      const prev1mTraffic = vol1m * ctr;
+      const prev3mTraffic = vol3m * ctr;
+      if (keywords[i]) {
+        keywords[i].trend_30d = vol1m > 0 ? Math.round(currTraffic - prev1mTraffic) : null;
+        keywords[i].trend_7d  = null; // weekly not available from monthly data
+        keywords[i].trend_1m  = keywords[i].trend_30d;
       }
-    }
-
-    // Merge trends into keywords
-    keywords.forEach(k => {
-      const h = kwHistoryMap[k.keyword];
-      k.trend_7d  = h?.trend_7d  ?? null;
-      k.trend_30d = h?.trend_30d ?? null;
-      k.trend_1m  = h?.trend_30d ?? k.trend_1m ?? null;
     });
 
     res.json({
