@@ -520,6 +520,7 @@ app.post('/api/ads-transparency', async (req, res) => {
     }
 
     const items = result.result?.[0]?.items || [];
+    if (items[0]) console.log('Full item:', JSON.stringify(items[0]));
     const ads = items.map((item, idx) => ({
       position: item.rank_absolute || idx + 1,
       advertiser: item.title || searchQuery,
