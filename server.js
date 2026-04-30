@@ -456,7 +456,7 @@ app.post('/api/ads-transparency', async (req, res) => {
         ? advItems.filter(i => (i.advertiser_name||'').toLowerCase().includes(searchQuery.toLowerCase()))
         : advItems;
       advertiser_ids = filtered.map(i => i.advertiser_id).filter(Boolean).slice(0, 5);
-      console.log('Advertiser IDs found:', advertiser_ids.length, filtered.slice(0,3).map(i=>i.advertiser_name).join(', '));
+      console.log('Advertisers raw sample:', JSON.stringify(filtered[0]).slice(0,300));
     }
 
     if (!advertiser_ids.length) {
