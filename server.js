@@ -1174,7 +1174,7 @@ app.post('/api/site-audit', async (req, res) => {
     const target = domain.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
     const isGlobal = !location_code || location_code === 0;
     let effectiveLocation = isGlobal ? 2840 : location_code;
-    console.log('Site audit for:', target, 'location_code:', location_code, 'isGlobal:', isGlobal, 'effectiveLocation:', effectiveLocation);
+    console.log('Site audit for:', target, isGlobal ? '[GLOBAL -> '+effectiveLocation+']' : '[GEO:'+location_code+']');
 
     // Headers and safe helper must be defined first
     const headers = { Authorization: getAuthHeader(), 'Content-Type': 'application/json' };
@@ -1192,12 +1192,9 @@ app.post('/api/site-audit', async (req, res) => {
         const task = r?.data?.tasks?.[0];
         const items = task?.result?.[0]?.items || [];
         const etv = items[0]?.metrics?.organic?.etv || task?.result?.[0]?.metrics?.organic?.etv || 0;
-        console.log('Probe', probeGeos[i], 'status:', task?.status_code, 'etv:', Math.round(etv));
         return { loc: probeGeos[i], etv };
       }).filter(g => g.etv > 0).sort((a,b) => b.etv - a.etv);
-      console.log('Top GEOs found:', geoTraffic.length, geoTraffic.slice(0,3).map(g=>g.loc+':'+Math.round(g.etv)).join(', '));
       effectiveLocation = geoTraffic[0]?.loc || 2840;
-      console.log('Using effectiveLocation:', effectiveLocation);
     }
 
     const [overviewRes, keywordsRes, backlinksRes, competitorsRes, pagesRes, geoRes] = await Promise.all([
@@ -1317,7 +1314,6 @@ app.post('/api/site-audit', async (req, res) => {
       const tTask = compTrafficResults[i]?.data?.tasks?.[0];
       const tItems = tTask?.result?.[0]?.items || [];
       const tMetrics = tItems[0]?.metrics?.organic || tTask?.result?.[0]?.metrics?.organic || {};
-      console.log('Comp', item.domain, 'status:', tTask?.status_code, 'etv:', tMetrics.etv);
       return {
         domain: item.domain || '',
         common_keywords: item.intersections || 0,
