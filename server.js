@@ -430,28 +430,38 @@ function parseAdItem(item) {
 // Gets REAL ads from Google Ads Transparency Center via ads_advertisers + ads_search
 app.post('/api/ads-transparency', async (req, res) => {
   try {
-    const { domain, location_code = 2840, language_code = 'en', date_from, date_to, depth = 40, sort_by = 'newest', platform = '' } = req.body;
-    if (!domain) return res.status(400).json({ error: 'domain is required' });
+    const { domain, keyword, advertiser, search_type = 'domain', location_code = 2840, language_code = 'en', date_from, date_to, depth = 40, sort_by = 'newest', platform = '' } = req.body;
 
-    // Step 1: Find advertiser_ids for this domain
+    const searchQuery = domain || keyword || advertiser || '';
+    if (!searchQuery) return res.status(400).json({ error: 'Search query is required' });
+
+    // Step 1: Find advertiser_ids via ads_advertisers
+    const advPayload = { location_code, language_code, depth: 20 };
+    if (search_type === 'domain') advPayload.target = domain;
+    else advPayload.keyword = keyword || advertiser || searchQuery;
+
     const advRes = await axios.post(
       `${DFORSEO_BASE}/serp/google/ads_advertisers/live/advanced`,
-      [{ target: domain, location_code, language_code, depth: 10 }],
+      [advPayload],
       { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
     );
     const advTask = advRes.data?.tasks?.[0];
-    console.log('Advertisers status:', advTask?.status_code, advTask?.status_message);
+    console.log('Advertisers status:', advTask?.status_code, 'query:', searchQuery);
 
     let advertiser_ids = [];
     if (advTask?.status_code === 20000) {
       const advItems = advTask.result?.[0]?.items || [];
-      advertiser_ids = advItems.map(i => i.advertiser_id).filter(Boolean).slice(0, 5);
-      console.log('Advertiser IDs found:', advertiser_ids.length);
+      // Filter by advertiser name if searching by advertiser
+      const filtered = search_type === 'advertiser'
+        ? advItems.filter(i => (i.advertiser_name||'').toLowerCase().includes(searchQuery.toLowerCase()))
+        : advItems;
+      advertiser_ids = filtered.map(i => i.advertiser_id).filter(Boolean).slice(0, 5);
+      console.log('Advertiser IDs found:', advertiser_ids.length, filtered.slice(0,3).map(i=>i.advertiser_name).join(', '));
     }
 
     if (!advertiser_ids.length) {
       return res.status(400).json({ 
-        error: `No advertiser found for ${domain}. This domain may not be running Google Ads or may not be indexed in Transparency Center yet.`
+        error: `No advertiser found for "${searchQuery}". Try a different search term or check the domain is running Google Ads.`
       });
     }
 
