@@ -1241,9 +1241,9 @@ app.post('/api/site-audit', async (req, res) => {
       // 3. Backlinks overview — correct endpoint
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
         [{ target, location_code: 2840, language_code: 'en' }], { headers })),
-      // 4. Organic competitors — use US for biggest traffic numbers
+      // 4. Organic competitors — use top GEO with higher limit
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/competitors_domain/live`,
-        [{ target, location_code: effectiveLocation, language_code, limit: 5 }], { headers })),
+        [{ target, location_code: effectiveLocation, language_code, limit: 20 }], { headers })),
       // 5. Top pages by traffic
       safe(() => Promise.resolve(null)),
       // 6. Historical rank overview for traffic trend
@@ -1350,21 +1350,18 @@ app.post('/api/site-audit', async (req, res) => {
 
     // Parse competitors — keep only relevant ones by filtering generic domains
     // and sorting by intersections (common keywords = relevance signal)
-    // Only skip truly generic non-competing domains
-    const SKIP_DOMAINS = new Set([
-      'youtube.com','wikipedia.org','reddit.com','facebook.com','twitter.com',
-      'instagram.com','tiktok.com','google.com','amazon.com','apple.com',
-      'microsoft.com','linkedin.com','pinterest.com','tumblr.com','quora.com',
-      'medium.com','wordpress.com','blogspot.com','bbc.com','cnn.com',
-      'forbes.com','businessinsider.com','techcrunch.com'
-    ]);
+
     const compItems = competitorsRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
-    console.log('Raw competitors:', compItems.slice(0,8).map(c=>c.domain+':'+c.intersections).join(', '));
-    const filteredItems = compItems
-      .filter(item => item.domain && !SKIP_DOMAINS.has(item.domain) && item.domain !== target)
-      .sort((a, b) => (b.intersections || 0) - (a.intersections || 0))
-      .slice(0, 5);
-    console.log('Filtered competitors:', filteredItems.map(c=>c.domain).join(', '));
+    // Skip target domain, take next 5 by intersections regardless of domain type
+    const allComps = compItems
+      .filter(item => item.domain && item.domain !== target)
+      .sort((a, b) => (b.intersections || 0) - (a.intersections || 0));
+
+    // Prefer niche competitors, but fall back to any if not enough
+    const GENERIC = new Set(['youtube.com','google.com','facebook.com','instagram.com','tiktok.com','twitter.com','x.com']);
+    const niche = allComps.filter(c => !GENERIC.has(c.domain));
+    const filteredItems = (niche.length >= 3 ? niche : allComps).slice(0, 5);
+    console.log('Competitors selected:', filteredItems.map(c=>c.domain+':'+c.intersections).join(', '));
 
     // Fetch real traffic per GEO for each competitor
     const compTrafficResults = await Promise.all(filteredItems.map(item =>
