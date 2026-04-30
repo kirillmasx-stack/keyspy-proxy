@@ -1465,6 +1465,10 @@ app.post('/api/site-audit', async (req, res) => {
     console.log('FINAL organic_traffic:', Math.round(organic.etv||0), 'keywords:', organic.count||0);
 
     // Calculate trends from monthly_searches (already in kwItems data)
+    if (kwItems[0]) {
+      const sample = kwItems[0];
+      console.log('Sample kw:', sample.keyword_data?.keyword, 'monthly:', JSON.stringify(sample.keyword_data?.keyword_info?.monthly_searches?.slice(0,3)));
+    }
     kwItems.slice(0, 20).forEach((item, i) => {
       const monthly = item.keyword_data?.keyword_info?.monthly_searches || [];
       const pos = item.ranked_serp_element?.serp_item?.rank_absolute || 0;
