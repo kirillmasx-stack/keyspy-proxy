@@ -305,17 +305,22 @@ app.post('/api/ads-analyzer', async (req, res) => {
       console.log('Bing ads status:', bingTask?.status_code);
       const bingItems = (bingTask?.result?.[0]?.items || []).filter(i => i.type === 'paid');
       console.log('Bing paid items:', bingItems.length);
-      if (bingItems[0]) console.log('Bing sample:', JSON.stringify(bingItems[0]).slice(0,500));
       ads = bingItems.map((item, idx) => ({
         position: item.rank_absolute || idx + 1,
         keyword: query,
         domain: item.domain || '',
+        website_name: item.website_name || '',
         titles: item.title ? [item.title] : [],
-        description: item.description || '',
+        description: item.description || item.snippet || '',
         display_url: item.breadcrumb || item.url || '',
         url: item.url || '',
-        sitelinks: (item.sitelinks || []).map(s => ({ title: s.title, description: s.description })),
-        callouts: [], promos: [], source: 'bing'
+        sitelinks: (item.sitelinks || []).map(s => ({ title: s.title, description: s.description, url: s.url })),
+        callouts: (item.callouts || []),
+        images: item.images || null,
+        is_image: item.is_image || false,
+        is_video: item.is_video || false,
+        source: 'bing',
+        engine: 'bing'
       }));
       return res.json({ success: true, data: { keyword: query, ads, total: ads.length, engine: 'bing' } });
     }
