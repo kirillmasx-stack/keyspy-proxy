@@ -1310,7 +1310,7 @@ app.post('/api/site-audit', async (req, res) => {
     // Fetch real traffic per GEO for each competitor
     const compTrafficResults = await Promise.all(filteredItems.map(item =>
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
-        [{ target: item.domain, location_code, language_code }], { headers }))
+        [{ target: item.domain, location_code: effectiveLocation, language_code }], { headers }))
     ));
 
     const competitors = filteredItems.map((item, i) => {
