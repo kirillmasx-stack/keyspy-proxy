@@ -294,6 +294,30 @@ app.post('/api/ads-analyzer', async (req, res) => {
 
     let ads = [];
 
+    if (mode === 'bing') {
+      const headers = { Authorization: getAuthHeader(), 'Content-Type': 'application/json' };
+      const bingRes = await axios.post(
+        `${DFORSEO_BASE}/serp/bing/paid/live/advanced`,
+        [{ keyword: query, location_code, language_code, depth: 100 }],
+        { headers }
+      );
+      const bingTask = bingRes.data?.tasks?.[0];
+      console.log('Bing ads status:', bingTask?.status_code);
+      const bingItems = bingTask?.result?.[0]?.items?.filter(i => i.type === 'paid') || [];
+      ads = bingItems.map((item, idx) => ({
+        position: item.rank_absolute || idx + 1,
+        keyword: query,
+        domain: item.domain || '',
+        titles: item.title ? [item.title] : [],
+        description: item.description || '',
+        display_url: item.breadcrumb || item.url || '',
+        url: item.url || '',
+        sitelinks: (item.sitelinks || []).map(s => ({ title: s.title, description: s.description })),
+        callouts: [], promos: [], source: 'bing'
+      }));
+      return res.json({ success: true, data: { keyword: query, ads, total: ads.length, engine: 'bing' } });
+    }
+
     if (mode === 'keyword') {
       // Use dedicated paid endpoint for guaranteed ad results
       const response = await axios.post(
@@ -430,7 +454,8 @@ function parseAdItem(item) {
 // Gets REAL ads from Google Ads Transparency Center via ads_advertisers + ads_search
 app.post('/api/ads-transparency', async (req, res) => {
   try {
-    const { domain, keyword, advertiser, search_type = 'domain', location_code = 2840, language_code = 'en', date_from, date_to, depth = 40, sort_by = 'newest', platform = '' } = req.body;
+    const { domain, keyword, advertiser, search_type = 'domain', location_code = 2840, location_codes, language_code = 'en', date_from, date_to, depth = 40, sort_by = 'newest', platform = '' } = req.body;
+    const geoList = location_codes?.length ? location_codes : [location_code];
 
     const searchQuery = domain || keyword || advertiser || '';
     if (!searchQuery) return res.status(400).json({ error: 'Search query is required' });
