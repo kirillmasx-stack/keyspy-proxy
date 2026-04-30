@@ -1352,15 +1352,34 @@ app.post('/api/site-audit', async (req, res) => {
     // and sorting by intersections (common keywords = relevance signal)
 
     const compItems = competitorsRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
-    // Skip target domain, take next 5 by intersections regardless of domain type
+    // Known industry competitors map for popular niches
+    const NICHE_COMPETITORS = {
+      'bet365.com':    ['stake.com','draftkings.com','fanduel.com','williamhill.com','betway.com'],
+      'stake.com':     ['bet365.com','draftkings.com','fanduel.com','williamhill.com','betway.com'],
+      'draftkings.com':['fanduel.com','bet365.com','betmgm.com','williamhill.com','stake.com'],
+      'fanduel.com':   ['draftkings.com','bet365.com','betmgm.com','williamhill.com','barstoolsports.com'],
+      'williamhill.com':['bet365.com','ladbrokes.com','betway.com','paddy power.com','coral.co.uk'],
+      'betway.com':    ['bet365.com','williamhill.com','ladbrokes.com','paddypower.com','coral.co.uk'],
+      '1xbet.com':     ['bet365.com','betway.com','williamhill.com','parimatch.com','melbet.com'],
+    };
+
+    // Skip target domain, prefer niche over generic
+    const GENERIC = new Set(['youtube.com','google.com','facebook.com','instagram.com','tiktok.com','twitter.com','x.com','wikipedia.org','reddit.com']);
     const allComps = compItems
       .filter(item => item.domain && item.domain !== target)
       .sort((a, b) => (b.intersections || 0) - (a.intersections || 0));
 
-    // Prefer niche competitors, but fall back to any if not enough
-    const GENERIC = new Set(['youtube.com','google.com','facebook.com','instagram.com','tiktok.com','twitter.com','x.com']);
     const niche = allComps.filter(c => !GENERIC.has(c.domain));
-    const filteredItems = (niche.length >= 3 ? niche : allComps).slice(0, 5);
+
+    let filteredItems;
+    if (niche.length >= 3) {
+      filteredItems = niche.slice(0, 5);
+    } else if (NICHE_COMPETITORS[target]) {
+      // Use known competitors list as fallback
+      filteredItems = NICHE_COMPETITORS[target].map(d => ({ domain: d, intersections: 0 }));
+    } else {
+      filteredItems = allComps.slice(0, 5);
+    }
     console.log('Competitors selected:', filteredItems.map(c=>c.domain+':'+c.intersections).join(', '));
 
     // Fetch real traffic per GEO for each competitor
