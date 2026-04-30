@@ -1477,10 +1477,14 @@ app.post('/api/site-audit', async (req, res) => {
 
         // Fetch historical data: 30 days ago and 7 days ago
         const [hist30, hist7] = await Promise.all([
-          safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/historical_rank_overview/live`,
-            [{ target, location_code: effectiveLocation, language_code, date_from: fmt(d30), date_to: fmt(d30) }], { headers })),
-          safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/historical_rank_overview/live`,
-            [{ target, location_code: effectiveLocation, language_code, date_from: fmt(d7), date_to: fmt(d7) }], { headers }))
+          safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/ranked_keywords/live`,
+            [{ target, location_code: effectiveLocation, language_code, limit: 100,
+               date_from: fmt(d30), date_to: fmt(d30),
+               order_by: ['keyword_data.keyword_info.search_volume,desc'] }], { headers })),
+          safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/ranked_keywords/live`,
+            [{ target, location_code: effectiveLocation, language_code, limit: 100,
+               date_from: fmt(d7), date_to: fmt(d7),
+               order_by: ['keyword_data.keyword_info.search_volume,desc'] }], { headers }))
         ]);
 
         const parseHistItems = (res) => {
@@ -1490,6 +1494,7 @@ app.post('/api/site-audit', async (req, res) => {
             const kw = item.keyword_data?.keyword;
             if (kw) map[kw] = item.ranked_serp_element?.serp_item?.etv || 0;
           });
+          console.log('Hist items parsed:', Object.keys(map).length, 'status:', res?.data?.tasks?.[0]?.status_code);
           return map;
         };
 
