@@ -1268,6 +1268,7 @@ app.post('/api/site-audit', async (req, res) => {
 
     // Parse keywords with intent
     const kwItems = keywordsRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
+    console.log('kwItems length:', kwItems.length, 'first monthly:', kwItems[0]?.keyword_data?.keyword_info?.monthly_searches?.length);
     const keywords = kwItems.slice(0, 20).map(item => {
       const monthly = item.keyword_data?.keyword_info?.monthly_searches || [];
       // monthly_searches is sorted newest first: [0]=current, [1]=prev month, [4]=~1month ago
