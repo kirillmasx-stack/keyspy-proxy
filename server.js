@@ -493,9 +493,9 @@ app.post('/api/ads-transparency', async (req, res) => {
       return res.status(400).json({ error: taskRes.data?.tasks?.[0]?.status_message || 'Failed to post task' });
     }
 
-    // Poll for results (max 30 seconds, 6 attempts × 5s)
+    // Poll for results (max 60 seconds, 12 attempts × 5s)
     let result = null;
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 12; i++) {
       await new Promise(r => setTimeout(r, 5000));
       const getRes = await axios.get(
         `${DFORSEO_BASE}/serp/google/ads_search/task_get/advanced/${taskId}`,
@@ -504,10 +504,11 @@ app.post('/api/ads-transparency', async (req, res) => {
       const t = getRes.data?.tasks?.[0];
       console.log(`Poll ${i+1}: status=${t?.status_code}`);
       if (t?.status_code === 20000) { result = t; break; }
+      if (t?.status_code === 40000 || t?.status_code === 40400) break; // error states
     }
 
     if (!result) {
-      return res.status(400).json({ error: 'Task timed out. Please try again.' });
+      return res.status(400).json({ error: 'Task timed out after 60s. Please try again.' });
     }
 
     const items = result.result?.[0]?.items || [];
