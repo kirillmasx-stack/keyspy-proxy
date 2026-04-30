@@ -1269,18 +1269,15 @@ app.post('/api/site-audit', async (req, res) => {
 
     // Parse keywords with intent
     const kwItems = keywordsRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
+    const localTermsKw = ['near me','nearby','local','in my area','closest','city','town',
+      'london','toronto','new york','sydney','berlin','paris','madrid','amsterdam','dubai','warsaw'];
+
     const keywords = kwItems.slice(0, 20).map(item => {
-      const monthly = item.keyword_data?.keyword_info?.monthly_searches || [];
-      // monthly_searches is sorted newest first: [0]=current, [1]=prev month, [4]=~1month ago
-      const curr = monthly[0]?.search_volume || 0;
-      const prev1m = monthly[1]?.search_volume || 0;
-      const prev3m = monthly[3]?.search_volume || curr;
-      // Traffic trend: compare current etv vs estimated from prev month volume
+      const kw = (item.keyword_data?.keyword || '').toLowerCase();
       const traffic = item.ranked_serp_element?.serp_item?.etv || 0;
       const pos = item.ranked_serp_element?.serp_item?.rank_absolute || 0;
-      // Estimate prev traffic using volume ratio
-      const trafficTrend1m = prev1m > 0 ? Math.round(traffic * (curr - prev1m) / prev1m) : 0;
-      const trafficTrend3m = prev3m > 0 ? Math.round(traffic * (curr - prev3m) / prev3m) : 0;
+      const isBranded = kw.includes(domainName);
+      const isLocal = localTermsKw.some(t => kw.includes(t));
       return {
         keyword: item.keyword_data?.keyword || '',
         position: pos,
@@ -1289,9 +1286,8 @@ app.post('/api/site-audit', async (req, res) => {
         traffic,
         url: item.ranked_serp_element?.serp_item?.url || '',
         intent: item.keyword_data?.search_intent_info?.main_intent || 'informational',
-        trend_1m: trafficTrend1m,
-        trend_3m: trafficTrend3m,
-        monthly_searches: monthly.slice(0, 3).map(m => ({ month: m?.month, year: m?.year, volume: m?.search_volume || 0 }))
+        branded: isBranded,
+        local: isLocal,
       };
     });
 
