@@ -435,55 +435,46 @@ app.post('/api/ads-transparency', async (req, res) => {
     const searchQuery = domain || keyword || advertiser || '';
     if (!searchQuery) return res.status(400).json({ error: 'Search query is required' });
 
-    // Step 1: Find advertiser_ids via ads_advertisers
-    // ads_advertisers: use 'target' for domain, 'keyword' for keyword/advertiser search
-    const advPayload = { location_code, language_code, depth: 20 };
-    if (search_type === 'domain' && domain) {
-      advPayload.target = domain;
-    } else {
-      advPayload.keyword = keyword || advertiser || searchQuery;
-    }
-
-    const advRes = await axios.post(
-      `${DFORSEO_BASE}/serp/google/ads_advertisers/live/advanced`,
-      [advPayload],
-      { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
-    );
-    const advTask = advRes.data?.tasks?.[0];
-    console.log('Advertisers status:', advTask?.status_code, 'query:', searchQuery);
-
     let advertiser_ids = [];
-    if (advTask?.status_code === 20000) {
-      const advItems = advTask.result?.[0]?.items || [];
-      // Filter by advertiser name if searching by advertiser
-      const filtered = search_type === 'advertiser'
-        ? advItems.filter(i => (i.advertiser_name||'').toLowerCase().includes(searchQuery.toLowerCase()))
-        : advItems;
-      advertiser_ids = filtered.map(i => i.advertiser_id).filter(Boolean).slice(0, 5);
-      // Return advertiser list to UI for display
-      req._advertiserList = filtered.slice(0, 5).map(i => ({
-        id: i.advertiser_id,
-        name: i.title || i.advertiser_name || i.advertiser_id,
-        location: i.location || '',
-        verified: i.verified || false,
-        approx_ads: i.approx_ads_count || 0
-      }));
-      console.log('Advertisers found:', req._advertiserList.map(a=>a.name).join(', '));
+    req._advertiserList = [];
+
+    if (search_type !== 'domain') {
+      // Keyword/advertiser: find advertiser_ids via ads_advertisers
+      const advRes = await axios.post(
+        `${DFORSEO_BASE}/serp/google/ads_advertisers/live/advanced`,
+        [{ location_code, language_code, depth: 20, keyword: keyword || advertiser || searchQuery }],
+        { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
+      );
+      const advTask = advRes.data?.tasks?.[0];
+      console.log('Advertisers status:', advTask?.status_code, 'query:', searchQuery);
+
+      if (advTask?.status_code === 20000) {
+        const advItems = advTask.result?.[0]?.items || [];
+        const filtered = search_type === 'advertiser'
+          ? advItems.filter(i => (i.title||'').toLowerCase().includes(searchQuery.toLowerCase()))
+          : advItems;
+        advertiser_ids = filtered.map(i => i.advertiser_id).filter(Boolean).slice(0, 5);
+        req._advertiserList = filtered.slice(0, 5).map(i => ({
+          id: i.advertiser_id, name: i.title || i.advertiser_id,
+          location: i.location || '', verified: i.verified || false,
+          approx_ads: i.approx_ads_count || 0
+        }));
+        console.log('Advertisers found:', req._advertiserList.map(a=>a.name).join(', '));
+      }
+      if (!advertiser_ids.length) {
+        return res.status(400).json({ error: `No advertiser found for "${searchQuery}".` });
+      }
+    } else {
+      console.log('Domain search:', searchQuery);
     }
 
-    if (!advertiser_ids.length) {
-      return res.status(400).json({ 
-        error: `No advertiser found for "${searchQuery}". Try a different search term or check the domain is running Google Ads.`
-      });
+    // Step 2: Build ads_search payload
+    const adsPayload = { location_code, language_code, depth: Math.min(depth, 40) };
+    if (search_type === 'domain') {
+      adsPayload.target = searchQuery; // domain directly in ads_search
+    } else {
+      adsPayload.advertiser_ids = advertiser_ids;
     }
-
-    // Step 2: Get ads live
-    const adsPayload = {
-      advertiser_ids,
-      location_code,
-      language_code,
-      depth: Math.min(depth, 40)
-    };
     if (platform) adsPayload.platform = platform;
     if (date_from) adsPayload.date_from = date_from;
     if (date_to) adsPayload.date_to = date_to;
