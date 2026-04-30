@@ -456,7 +456,15 @@ app.post('/api/ads-transparency', async (req, res) => {
         ? advItems.filter(i => (i.advertiser_name||'').toLowerCase().includes(searchQuery.toLowerCase()))
         : advItems;
       advertiser_ids = filtered.map(i => i.advertiser_id).filter(Boolean).slice(0, 5);
-      console.log('Advertisers raw sample:', JSON.stringify(filtered[0]).slice(0,300));
+      // Return advertiser list to UI for display
+      req._advertiserList = filtered.slice(0, 5).map(i => ({
+        id: i.advertiser_id,
+        name: i.title || i.advertiser_name || i.advertiser_id,
+        location: i.location || '',
+        verified: i.verified || false,
+        approx_ads: i.approx_ads_count || 0
+      }));
+      console.log('Advertisers found:', req._advertiserList.map(a=>a.name).join(', '));
     }
 
     if (!advertiser_ids.length) {
@@ -534,11 +542,12 @@ app.post('/api/ads-transparency', async (req, res) => {
     res.json({
       success: true,
       data: {
-        domain, ads, total: ads.length,
+        domain: searchQuery, ads, total: ads.length,
         advertiser_ids,
+        advertisers: req._advertiserList || [],
         date_from: date_from || null,
         date_to: date_to || null,
-        summary: `${ads.length} real ads found for ${domain} from Google Ads Transparency Center`,
+        summary: `${ads.length} ads found via Google Ads Transparency Center`,
         source: 'google_transparency'
       }
     });
