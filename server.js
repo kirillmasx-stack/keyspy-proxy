@@ -297,13 +297,14 @@ app.post('/api/ads-analyzer', async (req, res) => {
     if (mode === 'bing') {
       const headers = { Authorization: getAuthHeader(), 'Content-Type': 'application/json' };
       const bingRes = await axios.post(
-        `${DFORSEO_BASE}/serp/bing/paid/live/advanced`,
-        [{ keyword: query, location_code, language_code, depth: 100 }],
+        `${DFORSEO_BASE}/serp/bing/organic/live/advanced`,
+        [{ keyword: query, location_code, language_code, device, depth: 100 }],
         { headers }
       );
       const bingTask = bingRes.data?.tasks?.[0];
       console.log('Bing ads status:', bingTask?.status_code);
-      const bingItems = bingTask?.result?.[0]?.items?.filter(i => i.type === 'paid') || [];
+      const bingItems = (bingTask?.result?.[0]?.items || []).filter(i => i.type === 'paid');
+      console.log('Bing paid items:', bingItems.length);
       ads = bingItems.map((item, idx) => ({
         position: item.rank_absolute || idx + 1,
         keyword: query,
