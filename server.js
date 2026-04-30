@@ -1205,11 +1205,22 @@ app.post('/api/site-audit', async (req, res) => {
         safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/domain_rank_overview/live`,
           [{ target, location_code: loc, language_code: 'en' }], { headers }))
       ));
+      // Sum unique keywords across GEOs (use total_count from ranked_keywords)
+      // and sum traffic value from each GEO
       let globalKeywords = 0, globalTrafficValue = 0;
+      // Also fetch ranked_keywords count for each GEO
+      const top5KwResults = await Promise.all(top5Locs.map(loc =>
+        safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/ranked_keywords/live`,
+          [{ target, location_code: loc, language_code: 'en', limit: 1 }], { headers }))
+      ));
+      const kwCounts = new Set();
+      top5KwResults.forEach(r => {
+        const totalCount = r?.data?.tasks?.[0]?.result?.[0]?.total_count || 0;
+        globalKeywords = Math.max(globalKeywords, totalCount);
+      });
       top5Results.forEach(r => {
         const items = r?.data?.tasks?.[0]?.result?.[0]?.items || [];
         const m = items[0]?.metrics?.organic || {};
-        globalKeywords = Math.max(globalKeywords, m.count || 0);
         globalTrafficValue += Math.round(m.estimated_paid_traffic_cost || 0);
       });
       const globalTraffic = geoTraffic.slice(0, 5).reduce((s, g) => s + g.etv, 0);
@@ -1257,15 +1268,31 @@ app.post('/api/site-audit', async (req, res) => {
 
     // Parse keywords with intent
     const kwItems = keywordsRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
-    const keywords = kwItems.slice(0, 20).map(item => ({
-      keyword: item.keyword_data?.keyword || '',
-      position: item.ranked_serp_element?.serp_item?.rank_absolute || 0,
-      volume: item.keyword_data?.keyword_info?.search_volume || 0,
-      cpc: item.keyword_data?.keyword_info?.cpc || 0,
-      traffic: item.ranked_serp_element?.serp_item?.etv || 0,
-      url: item.ranked_serp_element?.serp_item?.url || '',
-      intent: item.keyword_data?.search_intent_info?.main_intent || 'informational'
-    }));
+    const keywords = kwItems.slice(0, 20).map(item => {
+      const monthly = item.keyword_data?.keyword_info?.monthly_searches || [];
+      // monthly_searches is sorted newest first: [0]=current, [1]=prev month, [4]=~1month ago
+      const curr = monthly[0]?.search_volume || 0;
+      const prev1m = monthly[1]?.search_volume || 0;
+      const prev3m = monthly[3]?.search_volume || curr;
+      // Traffic trend: compare current etv vs estimated from prev month volume
+      const traffic = item.ranked_serp_element?.serp_item?.etv || 0;
+      const pos = item.ranked_serp_element?.serp_item?.rank_absolute || 0;
+      // Estimate prev traffic using volume ratio
+      const trafficTrend1m = prev1m > 0 ? Math.round(traffic * (curr - prev1m) / prev1m) : 0;
+      const trafficTrend3m = prev3m > 0 ? Math.round(traffic * (curr - prev3m) / prev3m) : 0;
+      return {
+        keyword: item.keyword_data?.keyword || '',
+        position: pos,
+        volume: item.keyword_data?.keyword_info?.search_volume || 0,
+        cpc: item.keyword_data?.keyword_info?.cpc || 0,
+        traffic,
+        url: item.ranked_serp_element?.serp_item?.url || '',
+        intent: item.keyword_data?.search_intent_info?.main_intent || 'informational',
+        trend_1m: trafficTrend1m,
+        trend_3m: trafficTrend3m,
+        monthly_searches: monthly.slice(0, 3).map(m => ({ month: m?.month, year: m?.year, volume: m?.search_volume || 0 }))
+      };
+    });
 
     // Aggregate keywords by intent for the intent widget
     const intentMap = {};
