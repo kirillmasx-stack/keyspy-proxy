@@ -1359,10 +1359,12 @@ app.post('/api/site-audit', async (req, res) => {
       'forbes.com','businessinsider.com','techcrunch.com'
     ]);
     const compItems = competitorsRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
+    console.log('Raw competitors:', compItems.slice(0,8).map(c=>c.domain+':'+c.intersections).join(', '));
     const filteredItems = compItems
       .filter(item => item.domain && !SKIP_DOMAINS.has(item.domain) && item.domain !== target)
       .sort((a, b) => (b.intersections || 0) - (a.intersections || 0))
       .slice(0, 5);
+    console.log('Filtered competitors:', filteredItems.map(c=>c.domain).join(', '));
 
     // Fetch real traffic per GEO for each competitor
     const compTrafficResults = await Promise.all(filteredItems.map(item =>
