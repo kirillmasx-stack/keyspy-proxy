@@ -455,7 +455,7 @@ app.post('/api/ads-transparency', async (req, res) => {
       });
     }
 
-    // Step 2: Post task to get real ads
+    // Step 2: Get ads live
     const adsPayload = {
       advertiser_ids,
       location_code,
@@ -465,36 +465,19 @@ app.post('/api/ads-transparency', async (req, res) => {
     if (date_from) adsPayload.date_from = date_from;
     if (date_to) adsPayload.date_to = date_to;
 
-    const taskRes = await axios.post(
-      `${DFORSEO_BASE}/serp/google/ads_search/task_post`,
+    const adsRes = await axios.post(
+      `${DFORSEO_BASE}/serp/google/ads_search/live/advanced`,
       [adsPayload],
       { headers: { Authorization: getAuthHeader(), 'Content-Type': 'application/json' } }
     );
-    const taskId = taskRes.data?.tasks?.[0]?.id;
-    console.log('Ads search task ID:', taskId);
+    const adsTask = adsRes.data?.tasks?.[0];
+    console.log('Ads search status:', adsTask?.status_code, adsTask?.status_message);
 
-    if (!taskId) {
-      return res.status(400).json({ error: taskRes.data?.tasks?.[0]?.status_message || 'Failed to post task' });
+    if (adsTask?.status_code !== 20000) {
+      return res.status(400).json({ error: adsTask?.status_message || 'Failed to get ads' });
     }
 
-    // Step 3: Poll for results (max 20 seconds)
-    let result = null;
-    for (let i = 0; i < 5; i++) {
-      await new Promise(r => setTimeout(r, 4000));
-      const getRes = await axios.get(
-        `${DFORSEO_BASE}/serp/google/ads_search/task_get/advanced/${taskId}`,
-        { headers: { Authorization: getAuthHeader() } }
-      );
-      const t = getRes.data?.tasks?.[0];
-      console.log(`Poll ${i+1}: status=${t?.status_code} msg=${t?.status_message}`);
-      if (t?.status_code === 20000) { result = t; break; }
-    }
-
-    if (!result) {
-      return res.status(400).json({ error: 'Task timed out. Try again — results may take a few seconds.' });
-    }
-
-    const items = result.result?.[0]?.items || [];
+    const items = adsTask.result?.[0]?.items || [];
     const ads = items.map((item, idx) => ({
       position: item.rank_absolute || idx + 1,
       advertiser: item.advertiser_name || domain,
