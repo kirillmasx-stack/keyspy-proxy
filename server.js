@@ -1464,77 +1464,34 @@ app.post('/api/site-audit', async (req, res) => {
       };
     console.log('FINAL organic_traffic:', Math.round(organic.etv||0), 'keywords:', organic.count||0);
 
-    // Fetch historical keyword positions using DataForSEO historical endpoint
-    try {
-      const now = new Date();
-      const d30 = new Date(now); d30.setDate(d30.getDate() - 30);
-      const d90 = new Date(now); d90.setDate(d90.getDate() - 90);
-      const fmt = d => d.toISOString().slice(0, 7); // YYYY-MM format
-
-      const topKws = keywords.slice(0, 20).map(k => k.keyword);
-
-      // historical_serp returns positions for domain per keyword per date
-      const [hist30, hist90] = await Promise.all([
-        safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/historical_serp/live`,
-          topKws.map(kw => ({
-            keyword: kw,
-            location_code: effectiveLocation,
-            language_code,
-            date: fmt(d30)
-          })), { headers })),
-        safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/historical_serp/live`,
-          topKws.map(kw => ({
-            keyword: kw,
-            location_code: effectiveLocation,
-            language_code,
-            date: fmt(d90)
-          })), { headers }))
-      ]);
-
-      console.log('Hist30 status:', hist30?.data?.tasks?.[0]?.status_code);
-      console.log('Hist30 sample:', JSON.stringify(hist30?.data?.tasks?.[0]?.result?.[0]).slice(0,200));
-
-      // Build position maps: keyword -> position at that date
-      const buildPosMap = (res) => {
-        const map = {};
-        const tasks = res?.data?.tasks || [];
-        tasks.forEach(task => {
-          const kw = task?.data?.keyword;
-          const items = task?.result?.[0]?.items || [];
-          // Find our domain in results
-          const match = items.find(item =>
-            item.type === 'organic' &&
-            (item.url?.includes(target) || item.domain?.includes(target))
-          );
-          if (kw && match) map[kw] = { pos: match.rank_absolute || 0 };
-        });
-        return map;
-      };
-
-      const map30 = buildPosMap(hist30);
-      const map90 = buildPosMap(hist90);
-      console.log('Hist pos maps - 30d:', Object.keys(map30).length, '90d:', Object.keys(map90).length);
+    // Use previous_etv/previous_rank from ranked_keywords for per-keyword trend
+    if (kwItems[0]) console.log('Trend fields sample:', JSON.stringify(kwItems[0].ranked_serp_element?.serp_item).slice(0,300));
+    kwItems.slice(0, 20).forEach((item, i) => {
+      if (!keywords[i]) return;
+      const serpItem = item.ranked_serp_element?.serp_item;
+      // DataForSEO provides position change flags
+      const posChange = serpItem?.position_type === 'organic' ? 0 : 0;
+      // Use etv difference: current vs previous_etv if available
+      const currEtv   = serpItem?.etv || 0;
+      const prevEtv   = serpItem?.previous_etv || null;
+      const currPos   = serpItem?.rank_absolute || 0;
+      const prevPos   = serpItem?.previous_rank_absolute || null;
+      const vol       = item.keyword_data?.keyword_info?.search_volume || 0;
 
       const ctrMap = {1:0.28,2:0.16,3:0.11,4:0.08,5:0.06,6:0.05,7:0.04,8:0.03,9:0.025,10:0.02};
-      const getCtr = pos => ctrMap[pos] || (pos <= 20 ? 0.01 : 0);
+      const getCtr = p => ctrMap[p] || (p <= 20 ? 0.01 : 0.005);
 
-      keywords.forEach(k => {
-        const vol = k.volume || 0;
-        const currPos = k.position || 0;
-        const currTraffic = Math.round(vol * getCtr(currPos));
-        const prev30 = map30[k.keyword];
-        const prev90 = map90[k.keyword];
-        k.trend_30d = prev30
-          ? Math.round(currTraffic - vol * getCtr(prev30.pos))
-          : null;
-        k.trend_3m = prev90
-          ? Math.round(currTraffic - vol * getCtr(prev90.pos))
-          : null;
-        k.trend_1m = k.trend_30d;
-      });
-    } catch(e) {
-      console.log('Historical trend error:', e.message);
-    }
+      if (prevEtv !== null) {
+        keywords[i].trend_30d = Math.round(currEtv - prevEtv);
+      } else if (prevPos !== null) {
+        keywords[i].trend_30d = Math.round(vol * (getCtr(currPos) - getCtr(prevPos)));
+      } else {
+        keywords[i].trend_30d = null;
+      }
+      keywords[i].trend_1m = keywords[i].trend_30d;
+      keywords[i].trend_3m = null;
+    });
+
 
     res.json({
       success: true,
