@@ -457,6 +457,19 @@ function parseAdItem(item) {
   };
 }
 
+// ── POST /api/scrape/google ──────────────────────────────────────────────────
+app.post('/api/scrape/google', async (req, res) => {
+  const SCRAPER_URL = process.env.SCRAPER_URL;
+  if (!SCRAPER_URL) return res.status(503).json({ error: 'Scraper service not configured. Set SCRAPER_URL env var.' });
+  try {
+    const response = await axios.post(`${SCRAPER_URL}/api/scrape/google`, req.body, { timeout: 120000 });
+    res.json(response.data);
+  } catch(e) {
+    console.error('Scraper proxy error:', e.message);
+    res.status(500).json({ error: e.response?.data?.error || e.message });
+  }
+});
+
 // ── POST /api/ads-transparency ────────────────────────────────────────────────
 // Gets REAL ads from Google Ads Transparency Center via ads_advertisers + ads_search
 app.post('/api/ads-transparency', async (req, res) => {
