@@ -672,13 +672,21 @@ app.post('/api/screenshot', async (req, res) => {
 
   try {
     if (SCRAPERAPI_KEY) {
-      const response = await axios.get('https://api.scraperapi.com/screenshot', {
-        params: { api_key: SCRAPERAPI_KEY, url, country_code: country, full_page: 'false' },
-        responseType: 'arraybuffer',
-        timeout: 60000,
+      // ScraperAPI screenshot: use screenshot=true param, get URL from sa-screenshot header
+      const response = await axios.get('https://api.scraperapi.com', {
+        params: { api_key: SCRAPERAPI_KEY, url, country_code: country, screenshot: 'true', render: 'true' },
+        timeout: 70000,
       });
-      const base64 = Buffer.from(response.data).toString('base64');
-      return res.json({ success: true, screenshot: base64, url });
+      // Screenshot URL is in the response header
+      const screenshotUrl = response.headers['sa-screenshot'];
+      if (screenshotUrl) {
+        // Download the screenshot image
+        const imgRes = await axios.get(screenshotUrl, { responseType: 'arraybuffer', timeout: 30000 });
+        const base64 = Buffer.from(imgRes.data).toString('base64');
+        return res.json({ success: true, screenshot: base64, url });
+      }
+      // Fallback: return HTML page thumbnail
+      return res.json({ success: false, error: 'Screenshot URL not returned' });
     }
     if (SCRAPER_URL) {
       const response = await axios.post(`${SCRAPER_URL}/api/screenshot`, req.body, { timeout: 60000 });
