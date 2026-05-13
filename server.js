@@ -1,6 +1,5 @@
 const express = require('express');
 const axios = require('axios');
-const cheerio = require('cheerio');
 const app = express();
 app.use(express.json());
 
@@ -29,54 +28,57 @@ const GEO_MAP = {
 };
 
 function parseGoogleAds(html) {
-  const $ = cheerio.load(html);
   const ads = [];
   const seen = new Set();
 
-  $('#tads, #bottomads').find('[data-text-ad], .uEierd').each((idx, el) => {
-    const $el = $(el);
-
-    // Get final URL from data-pcu (clean destination URL)
-    const mainLink = $el.find('a[data-pcu]').first();
-    const url = mainLink.attr('data-pcu') || mainLink.attr('href') || '';
-    if (!url || seen.has(url)) return;
+  // Extract ad blocks using data-pcu attribute (final destination URL)
+  const adBlockRegex = /data-pcu="([^"]+)"[^>]*>[\s\S]{0,5000}?(?=data-pcu="|<\/div>\s*<\/div>\s*<\/div>\s*<div class="GUyUUb")/g;
+  
+  // Simpler approach: find all data-pcu URLs and surrounding content
+  const pcuRegex = /data-pcu="(https?:\/\/[^"]+)"/g;
+  let match;
+  
+  while ((match = pcuRegex.exec(html)) !== null) {
+    const url = match[1];
+    if (!url || seen.has(url) || url.includes('google')) continue;
     seen.add(url);
 
     let domain = '';
     try { domain = new URL(url).hostname.replace('www.', ''); } catch(e) {}
-    if (!domain) return;
+    if (!domain) continue;
 
-    // Title — first heading inside the ad
-    const title = $el.find('[role="heading"]').first().text().trim() ||
-                  $el.find('div[class] span[class]').first().text().trim();
-    if (!title) return;
+    // Get surrounding HTML block (2000 chars after this match)
+    const block = html.slice(Math.max(0, match.index - 500), match.index + 2000);
 
-    // Description — look for longer text blocks
+    // Extract title from role="heading"
+    const titleMatch = block.match(/role="heading"[^>]*>([^<]+)</) ||
+                       block.match(/<h3[^>]*>([^<]+)<\/h3>/);
+    const title = titleMatch ? titleMatch[1].replace(/&amp;/g,'&').replace(/&#39;/g,"'").trim() : domain;
+
+    // Extract description — longest text node in block
     let desc = '';
-    $el.find('div, span').each((i, el2) => {
-      const text = $(el2).clone().children().remove().end().text().trim();
-      if (text.length > 40 && text.length < 300 && !text.includes('http') && text !== title) {
+    const textNodes = block.match(/>([^<]{40,200})</g) || [];
+    textNodes.forEach(t => {
+      const text = t.slice(1, -1).trim();
+      if (text.length > desc.length && !text.includes('http') && text !== title && !text.includes('{')) {
         desc = text;
-        return false;
       }
     });
+    desc = desc.replace(/&amp;/g,'&').replace(/&#39;/g,"'").trim();
 
-    // Display URL — cite tag or data-dtld
-    const display = $el.find('cite').first().text().trim() ||
-                    $el.find('[data-dtld]').first().text().trim() ||
-                    domain;
+    // Extract display URL from cite tag
+    const citeMatch = block.match(/<cite[^>]*>([^<]+)<\/cite>/);
+    const display = citeMatch ? citeMatch[1].replace(/<[^>]+>/g,'').trim() : domain;
 
-    // Sitelinks — find links with titles inside ad
+    // Extract sitelinks — other data-pcu in same block with short text
     const sitelinks = [];
-    $el.find('a[href]').each((i, sl) => {
-      const $sl = $(sl);
-      if ($sl.is(mainLink)) return; // skip main link
-      const t = $sl.text().trim();
-      const href = $sl.attr('href') || $sl.attr('data-pcu') || '';
-      if (t && t.length > 2 && t.length < 50 && href && !href.includes('google')) {
-        sitelinks.push({ title: t, url: href });
+    const slRegex = /data-pcu="(https?:\/\/[^"]+)"[^>]*>[\s\S]{0,200}?<span[^>]*>([^<]{3,40})<\/span>/g;
+    let slMatch;
+    while ((slMatch = slRegex.exec(block)) !== null) {
+      if (slMatch[1] !== url && !slMatch[1].includes('google')) {
+        sitelinks.push({ title: slMatch[2].trim(), url: slMatch[1] });
       }
-    });
+    }
 
     ads.push({
       position: ads.length + 1,
@@ -90,7 +92,7 @@ function parseGoogleAds(html) {
       format: 'search',
       source: 'scraperapi',
     });
-  });
+  }
 
   return ads;
 }
