@@ -684,9 +684,9 @@ app.post('/api/screenshot', async (req, res) => {
       if (screenshotUrl) {
         const imgRes = await axios.get(screenshotUrl, { responseType: 'arraybuffer', timeout: 30000 });
         const base64 = Buffer.from(imgRes.data).toString('base64');
-        return res.json({ success: true, screenshot: base64, url });
+        return res.json({ success: true, data: { screenshot: base64, url } });
       }
-      return res.json({ success: false, error: 'Screenshot URL not in headers. Headers: ' + Object.keys(response.headers || {}).join(', ') });
+      return res.json({ success: false, error: 'Screenshot URL not in headers' });
     }
     if (SCRAPER_URL) {
       const response = await axios.post(`${SCRAPER_URL}/api/screenshot`, req.body, { timeout: 60000 });
