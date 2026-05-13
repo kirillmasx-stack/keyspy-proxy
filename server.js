@@ -678,15 +678,15 @@ app.post('/api/screenshot', async (req, res) => {
         timeout: 70000,
       });
       // Screenshot URL is in the response header
-      const screenshotUrl = response.headers['sa-screenshot'];
+      const screenshotUrl = response.headers?.['sa-screenshot'] || response.headers?.['x-screenshot'];
+      console.log('Screenshot response headers:', JSON.stringify(Object.keys(response.headers || {})));
+      console.log('sa-screenshot header:', screenshotUrl);
       if (screenshotUrl) {
-        // Download the screenshot image
         const imgRes = await axios.get(screenshotUrl, { responseType: 'arraybuffer', timeout: 30000 });
         const base64 = Buffer.from(imgRes.data).toString('base64');
         return res.json({ success: true, screenshot: base64, url });
       }
-      // Fallback: return HTML page thumbnail
-      return res.json({ success: false, error: 'Screenshot URL not returned' });
+      return res.json({ success: false, error: 'Screenshot URL not in headers. Headers: ' + Object.keys(response.headers || {}).join(', ') });
     }
     if (SCRAPER_URL) {
       const response = await axios.post(`${SCRAPER_URL}/api/screenshot`, req.body, { timeout: 60000 });
