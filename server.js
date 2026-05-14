@@ -464,11 +464,12 @@ app.post('/api/site-audit', async (req, res) => {
 
     // Backlinks
     const blItem = blRes?.data?.tasks?.[0]?.result?.[0] || {};
+    console.log('Backlinks raw:', JSON.stringify(blItem).slice(0, 300));
     const backlinks = {
-      total: blItem.total_count || 0,
-      referring_domains: blItem.referring_domains || 0,
-      dofollow: blItem.referring_main_domains_dofollow || 0,
-      rank: blItem.rank || 0,
+      total: blItem.total_count || blItem.backlinks || 0,
+      referring_domains: blItem.referring_domains || blItem.referring_main_domains || 0,
+      dofollow: blItem.referring_main_domains_dofollow || blItem.dofollow || 0,
+      rank: blItem.rank || blItem.domain_rank || 0,
     };
 
     // Overview
@@ -478,7 +479,7 @@ app.post('/api/site-audit', async (req, res) => {
     const overview = {
       organic_keywords: organic.count || 0,
       organic_traffic: Math.round(organic.etv || 0),
-      organic_traffic_value: Math.round(organic.etv_cost || 0),
+      organic_traffic_value: Math.round(organic.estimated_paid_traffic_cost || organic.etv_cost || 0),
       paid_keywords: paid.count || 0,
       paid_traffic: Math.round(paid.etv || 0),
     };
@@ -490,7 +491,7 @@ app.post('/api/site-audit', async (req, res) => {
 
     const _globalTraffic = topGeos.reduce((s, g) => s + g.etv, 0);
     const _globalKeywords = overviewData?.metrics?.organic?.count || 0;
-    const _globalTrafficValue = overviewData?.metrics?.organic?.etv_cost || 0;
+    const _globalTrafficValue = overviewData?.metrics?.organic?.estimated_paid_traffic_cost || overviewData?.metrics?.organic?.etv_cost || 0;
     console.log(`Global: kw: ${_globalKeywords} traffic: ${Math.round(_globalTraffic)} value: ${Math.round(_globalTrafficValue)}`);
     console.log('Overview data:', JSON.stringify(overviewData?.metrics).slice(0, 200));
     console.log('Top GEOs:', topGeos.map(g => g.loc + ':' + Math.round(g.etv)).join(', '));
@@ -508,8 +509,6 @@ app.post('/api/site-audit', async (req, res) => {
       };
     });
     console.log('Overview:', overviewData ? '20000' : 'null');
-    console.log('Overview metrics:', JSON.stringify(overviewData?.metrics).slice(0, 300));
-    console.log('Top GEOs:', topGeos.map(g => g.loc + ':' + Math.round(g.etv)).join(', '));
 
     // Keywords
     const kwItems = kwRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
