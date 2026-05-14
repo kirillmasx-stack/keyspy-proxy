@@ -36,30 +36,31 @@ app.post('/api/keywords', async (req, res) => {
     if (!keyword) return res.status(400).json({ error: 'keyword is required' });
 
     const headers = { Authorization: getAuthHeader(), 'Content-Type': 'application/json' };
-    const endpoint = engine === 'bing'
-      ? `${DFORSEO_BASE}/keywords_data/bing/search_volume/live`
-      : `${DFORSEO_BASE}/keywords_data/google_ads/search_volume/live`;
 
-    const payload = [{ keywords: [keyword], location_code, language_code }];
-    const response = await axios.post(endpoint, payload, { headers });
-    const task = response.data?.tasks?.[0];
-
-    if (task?.status_code !== 20000) {
-      return res.status(400).json({ error: task?.status_message || 'DataForSEO error' });
-    }
-
-    // Also get keyword ideas
+    // Use keywords_for_keywords as primary - returns seed + related keywords
     const ideasEndpoint = engine === 'bing'
       ? `${DFORSEO_BASE}/keywords_data/bing/keywords_for_keywords/live`
       : `${DFORSEO_BASE}/keywords_data/google_ads/keywords_for_keywords/live`;
 
     const ideasPayload = [{ keywords: [keyword], location_code, language_code, limit: 50 }];
-    const ideasRes = await axios.post(ideasEndpoint, ideasPayload, { headers }).catch(() => null);
+    const ideasRes = await axios.post(ideasEndpoint, ideasPayload, { headers });
     const ideasTask = ideasRes?.data?.tasks?.[0];
+    console.log('[keywords] ideas status:', ideasTask?.status_code, 'items:', ideasTask?.result?.[0]?.items?.length);
 
-    const mainItems = task.result?.[0]?.items || [];
+    // Also get search volume for seed keyword
+    const svEndpoint = engine === 'bing'
+      ? `${DFORSEO_BASE}/keywords_data/bing/search_volume/live`
+      : `${DFORSEO_BASE}/keywords_data/google_ads/search_volume/live`;
+    const svRes = await axios.post(svEndpoint, [{ keywords: [keyword], location_code, language_code }], { headers }).catch(() => null);
+    const svTask = svRes?.data?.tasks?.[0];
+
+    const mainItems = svTask?.result?.[0]?.items || [];
     const ideasItems = ideasTask?.result?.[0]?.items || [];
     const allItems = [...mainItems, ...ideasItems];
+
+    if (!allItems.length) {
+      return res.status(400).json({ error: ideasTask?.status_message || 'No keyword data found' });
+    }
 
     const keywords = allItems.map(item => ({
       keyword: item.keyword,
