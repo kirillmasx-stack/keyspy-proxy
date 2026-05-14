@@ -451,7 +451,7 @@ app.post('/api/site-audit', async (req, res) => {
         [{ target, location_code: effectiveLocation, language_code, limit: 20, order_by: ['ranked_serp_element.serp_item.etv,desc'] }], { headers })),
       // Backlinks
       safe(() => axios.post(`${DFORSEO_BASE}/backlinks/summary/live`,
-        [{ target, limit: 1 }], { headers })),
+        [{ target, limit: 1, include_subdomains: true }], { headers })),
       // Competitors
       safe(() => axios.post(`${DFORSEO_BASE}/dataforseo_labs/google/competitors_domain/live`,
         [{ target, location_code: effectiveLocation, language_code, limit: 20 }], { headers })),
@@ -464,13 +464,16 @@ app.post('/api/site-audit', async (req, res) => {
 
     // Backlinks
     const blItem = blRes?.data?.tasks?.[0]?.result?.[0] || {};
-    console.log('Backlinks raw:', JSON.stringify(blItem).slice(0, 300));
     const backlinks = {
       total: blItem.total_count || blItem.backlinks || 0,
       referring_domains: blItem.referring_domains || blItem.referring_main_domains || 0,
       dofollow: blItem.referring_main_domains_dofollow || blItem.dofollow || 0,
-      rank: blItem.rank || blItem.domain_rank || 0,
+      rank: blItem.rank || blItem.domain_rank || probeMap[effectiveLocation]?.domain_rank || 0,
     };
+    // Use probe data for rank if backlinks empty
+    if (!backlinks.rank && overviewData) {
+      backlinks.rank = overviewData.domain_rank || 0;
+    }
 
     // Overview
     const overviewData = probeMap[effectiveLocation];
@@ -493,8 +496,6 @@ app.post('/api/site-audit', async (req, res) => {
     const _globalKeywords = overviewData?.metrics?.organic?.count || 0;
     const _globalTrafficValue = overviewData?.metrics?.organic?.estimated_paid_traffic_cost || overviewData?.metrics?.organic?.etv_cost || 0;
     console.log(`Global: kw: ${_globalKeywords} traffic: ${Math.round(_globalTraffic)} value: ${Math.round(_globalTrafficValue)}`);
-    console.log('Overview data:', JSON.stringify(overviewData?.metrics).slice(0, 200));
-    console.log('Top GEOs:', topGeos.map(g => g.loc + ':' + Math.round(g.etv)).join(', '));
 
     // GEO breakdown
     const geo = topGeos.map(g => {
