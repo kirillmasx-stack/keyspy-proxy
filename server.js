@@ -470,13 +470,14 @@ app.post('/api/site-audit', async (req, res) => {
       dofollow: blItem.referring_main_domains_dofollow || blItem.dofollow || 0,
       rank: blItem.rank || blItem.domain_rank || probeMap[effectiveLocation]?.domain_rank || 0,
     };
-    // Use probe data for rank if backlinks empty
-    if (!backlinks.rank && overviewData) {
-      backlinks.rank = overviewData.domain_rank || 0;
-    }
+
 
     // Overview
     const overviewData = probeMap[effectiveLocation];
+    // Fix backlinks rank using probe data if empty
+    if (!backlinks.rank && overviewData) {
+      backlinks.rank = overviewData.domain_rank || 0;
+    }
     const organic = overviewData?.metrics?.organic || {};
     const paid = overviewData?.metrics?.paid || {};
     const overview = {
