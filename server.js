@@ -492,6 +492,8 @@ app.post('/api/site-audit', async (req, res) => {
     const _globalKeywords = overviewData?.metrics?.organic?.count || 0;
     const _globalTrafficValue = overviewData?.metrics?.organic?.etv_cost || 0;
     console.log(`Global: kw: ${_globalKeywords} traffic: ${Math.round(_globalTraffic)} value: ${Math.round(_globalTrafficValue)}`);
+    console.log('Overview data:', JSON.stringify(overviewData?.metrics).slice(0, 200));
+    console.log('Top GEOs:', topGeos.map(g => g.loc + ':' + Math.round(g.etv)).join(', '));
 
     // GEO breakdown
     const geo = topGeos.map(g => {
@@ -506,6 +508,8 @@ app.post('/api/site-audit', async (req, res) => {
       };
     });
     console.log('Overview:', overviewData ? '20000' : 'null');
+    console.log('Overview metrics:', JSON.stringify(overviewData?.metrics).slice(0, 300));
+    console.log('Top GEOs:', topGeos.map(g => g.loc + ':' + Math.round(g.etv)).join(', '));
 
     // Keywords
     const kwItems = kwRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
@@ -573,7 +577,7 @@ app.post('/api/site-audit', async (req, res) => {
 
     // Competitors
     const compItems = compRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
-    const GENERIC = new Set(['youtube.com','google.com','facebook.com','instagram.com','tiktok.com','twitter.com','x.com','wikipedia.org','reddit.com']);
+    const GENERIC = new Set(['youtube.com','google.com','facebook.com','instagram.com','tiktok.com','twitter.com','x.com','wikipedia.org','reddit.com','apple.com','amazon.com','microsoft.com','linkedin.com','pinterest.com']);
     const allComps = compItems
       .filter(item => item.domain && item.domain !== target)
       .sort((a, b) => (b.intersections || 0) - (a.intersections || 0));
@@ -609,13 +613,30 @@ app.post('/api/site-audit', async (req, res) => {
     // Referrers
     const refRes = await safe(() => axios.post(`${DFORSEO_BASE}/backlinks/referring_domains/live`,
       [{ target, limit: 100, order_by: ['rank,desc'] }], { headers }));
-    const refItems = refRes?.data?.tasks?.[0]?.result?.[0]?.items || [];
-    console.log('Referrers status:', refRes?.data?.tasks?.[0]?.status_code);
+    const refTask = refRes?.data?.tasks?.[0];
+    console.log('Referrers status:', refTask?.status_code);
+    let refItems = refTask?.result?.[0]?.items || [];
+
+    // Fallback to anchors endpoint if referring_domains fails
+    if (!refItems.length) {
+      const refRes2 = await safe(() => axios.post(`${DFORSEO_BASE}/backlinks/anchors/live`,
+        [{ target, limit: 100, mode: 'as_is', filters: [['dofollow','=',true]] }], { headers }));
+      const refTask2 = refRes2?.data?.tasks?.[0];
+      console.log('Anchors fallback status:', refTask2?.status_code);
+      refItems = (refTask2?.result?.[0]?.items || []).map(i => ({
+        domain: i.url_from_domain || '',
+        rank: i.page_rank || 0,
+        backlinks: 1,
+        dofollow: i.dofollow || false,
+        first_seen: i.first_seen || '',
+      }));
+    }
+
     console.log('Referrers found:', refItems.length);
     const referrers = refItems.map(item => ({
-      domain: item.domain || '',
+      domain: item.domain || item.url_from_domain || '',
       rank: item.rank || 0,
-      backlinks: item.backlinks || 0,
+      backlinks: item.backlinks || 1,
       dofollow: item.dofollow || false,
       first_seen: item.first_seen || '',
     }));
