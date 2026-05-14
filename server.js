@@ -501,7 +501,16 @@ app.post('/api/site-audit', async (req, res) => {
     // GEO breakdown
     const geo = topGeos.map(g => {
       const d = probeMap[g.loc];
-      const COUNTRY_MAP = {2840:'US',2826:'GB',2124:'CA',2036:'AU',2276:'DE',2616:'PL',2356:'IN',2076:'BR',2724:'ES',2380:'IT',2250:'FR',2528:'NL',2804:'UA',2566:'NG',2710:'ZA'};
+      const COUNTRY_MAP = {
+        2840:'US',2826:'GB',2124:'CA',2036:'AU',2276:'DE',2616:'PL',
+        2356:'IN',2076:'BR',2724:'ES',2380:'IT',2250:'FR',2528:'NL',
+        2804:'UA',2566:'NG',2710:'ZA',2484:'MX',2392:'JP',2410:'KR',
+        2702:'SG',2764:'TH',2458:'MY',2360:'ID',2608:'PH',2554:'NZ',
+        2784:'AE',2682:'SA',2376:'IL',2792:'TR',2818:'EG',2404:'KE',
+        2300:'GR',2620:'PT',2056:'BE',2040:'AT',2756:'CH',2208:'DK',
+        2246:'FI',2578:'NO',2752:'SE',2203:'CZ',2348:'HU',2642:'RO',
+        2032:'AR',2152:'CL',2170:'CO',2344:'HK',2158:'TW',2704:'VN'
+      };
       return {
         location_code: g.loc,
         country: COUNTRY_MAP[g.loc] || String(g.loc),
