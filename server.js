@@ -74,10 +74,25 @@ app.post('/api/keywords', async (req, res) => {
       is_idea: isIdea,
     });
 
-    const seedKeywords = mainItems.map(k => mapItem(k, false)).filter(k => k.keyword);
+    // If search_volume returned nothing, use first idea as seed
+    let seedKeywords = mainItems.map(k => mapItem(k, false)).filter(k => k.keyword);
     const ideaKeywords = ideasItems.map(k => mapItem(k, true)).filter(k => k.keyword);
-    const keywords = [...seedKeywords, ...ideaKeywords];
 
+    // Find the seed keyword in ideas and move it to seed
+    if (!seedKeywords.length && ideaKeywords.length) {
+      const seedIdx = ideaKeywords.findIndex(k => k.keyword.toLowerCase() === keyword.toLowerCase());
+      if (seedIdx > -1) {
+        const [seed] = ideaKeywords.splice(seedIdx, 1);
+        seed.is_idea = false;
+        seedKeywords = [seed];
+      } else {
+        // Use first idea as seed
+        const seed = { ...ideaKeywords[0], is_idea: false };
+        seedKeywords = [seed];
+      }
+    }
+
+    const keywords = [...seedKeywords, ...ideaKeywords];
     console.log('[keywords] seed:', seedKeywords.length, 'ideas:', ideaKeywords.length);
     res.json({ success: true, data: { keyword, keywords, seed: seedKeywords, ideas: ideaKeywords, total: keywords.length } });
   } catch(err) {
