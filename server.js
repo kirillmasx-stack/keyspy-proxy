@@ -66,8 +66,8 @@ app.post('/api/keywords', async (req, res) => {
       keyword: item.keyword || '',
       volume: item.search_volume || 0,
       cpc: parseFloat(item.cpc || 0),
-      competition: parseFloat(item.competition || 0),
-      competition_level: item.competition_level || '',
+      competition: item.competition_index ? parseFloat(item.competition_index) / 100 : parseFloat(item.competition || 0),
+      competition_level: item.competition_level || (item.competition_index > 66 ? 'HIGH' : item.competition_index > 33 ? 'MEDIUM' : 'LOW'),
       monthly_searches: (item.monthly_searches || []).slice(0, 12).map(m => ({
         year: m.year, month: m.month, volume: m.search_volume || 0
       })),
