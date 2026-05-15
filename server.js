@@ -37,15 +37,18 @@ app.post('/api/keywords', async (req, res) => {
 
     const headers = { Authorization: getAuthHeader(), 'Content-Type': 'application/json' };
 
-    // Use keywords_for_keywords as primary - returns seed + related keywords
-    const ideasEndpoint = engine === 'bing'
-      ? `${DFORSEO_BASE}/keywords_data/bing/keywords_for_keywords/live`
-      : `${DFORSEO_BASE}/keywords_data/google_ads/keywords_for_keywords/live`;
+    // Use keyword_suggestions - returns array of related keywords
+    const suggestEndpoint = engine === 'bing'
+      ? `${DFORSEO_BASE}/keywords_data/bing/keywords_for_site/live`
+      : `${DFORSEO_BASE}/dataforseo_labs/google/keyword_suggestions/live`;
 
-    const ideasPayload = [{ keywords: [keyword], location_code, language_code, limit: 50 }];
-    const ideasRes = await axios.post(ideasEndpoint, ideasPayload, { headers });
-    const ideasTask = ideasRes?.data?.tasks?.[0];
-    console.log('[keywords] ideas status:', ideasTask?.status_code, 'items:', ideasTask?.result?.[0]?.items?.length);
+    const suggestPayload = engine === 'bing'
+      ? [{ target: keyword, location_code, language_code, limit: 50 }]
+      : [{ keyword, location_code, language_code, limit: 50, include_seed_keyword: true }];
+
+    const suggestRes = await axios.post(suggestEndpoint, suggestPayload, { headers }).catch(() => null);
+    const suggestTask = suggestRes?.data?.tasks?.[0];
+    console.log('[keywords] suggest status:', suggestTask?.status_code, 'items:', suggestTask?.result?.[0]?.items?.length);
 
     // Also get search volume for seed keyword
     const svEndpoint = engine === 'bing'
@@ -55,15 +58,20 @@ app.post('/api/keywords', async (req, res) => {
     const svTask = svRes?.data?.tasks?.[0];
 
     const mainItems = svTask?.result?.[0]?.items || [];
-    // keywords_for_keywords returns items directly in result array
-    const ideasResult = ideasTask?.result?.[0];
-    const ideasItems = ideasResult?.items || ideasResult || [];
-    console.log('[keywords] ideasResult keys:', ideasResult ? Object.keys(ideasResult).join(',') : 'null');
-    console.log('[keywords] ideasItems type:', Array.isArray(ideasItems) ? 'array' : typeof ideasItems, 'len:', ideasItems?.length);
-    const allItems = [...mainItems, ...(Array.isArray(ideasItems) ? ideasItems : [])];
+    const suggestItems = (suggestTask?.result?.[0]?.items || []).map(item => ({
+      keyword: item.keyword_data?.keyword || item.keyword || '',
+      search_volume: item.keyword_data?.keyword_info?.search_volume || item.search_volume || 0,
+      cpc: item.keyword_data?.keyword_info?.cpc || item.cpc || 0,
+      competition: item.keyword_data?.keyword_info?.competition || item.competition || 0,
+      competition_level: item.keyword_data?.keyword_info?.competition_level || item.competition_level || '',
+      monthly_searches: item.keyword_data?.keyword_info?.monthly_searches || item.monthly_searches || [],
+    }));
+
+    const allItems = [...mainItems, ...suggestItems];
+    console.log('[keywords] total items:', allItems.length);
 
     if (!allItems.length) {
-      return res.status(400).json({ error: ideasTask?.status_message || 'No keyword data found' });
+      return res.status(400).json({ error: 'No keyword data found. Try a different keyword.' });
     }
 
     const keywords = allItems.map(item => ({
