@@ -719,6 +719,44 @@ app.post('/api/site-audit', async (req, res) => {
   }
 });
 
+// ── POST /api/ai/negatives ───────────────────────────────────────────────────
+app.post('/api/ai/negatives', async (req, res) => {
+  try {
+    const { keywords, core_keywords } = req.body;
+    if (!keywords || !keywords.length) return res.status(400).json({ error: 'keywords required' });
+
+    const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
+    if (!ANTHROPIC_KEY) return res.status(503).json({ error: 'ANTHROPIC_API_KEY not configured' });
+
+    const kwLines = keywords.slice(0, 50).map(k => k.keyword + ' (vol:' + k.volume + ', intent:' + (k.intent||'?') + ')').join('\n');
+    const coreList = (core_keywords || []).map(k => k.keyword).join(', ') || 'none';
+
+    const prompt = 'You are a PPC expert. Analyze these keywords and generate negative keywords for a paid search campaign.\n\nSearch keywords:\n' + kwLines + '\n\nCore keywords selected by user: ' + coreList + '\n\nGenerate 15-25 negative keywords specific to this niche. Only include words that are genuinely irrelevant to THIS specific niche. Return ONLY a JSON array of strings. Example: ["word1", "word2"]';
+
+    const response = await axios.post('https://api.anthropic.com/v1/messages', {
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 500,
+      messages: [{ role: 'user', content: prompt }]
+    }, {
+      headers: {
+        'x-api-key': ANTHROPIC_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+      },
+      timeout: 30000
+    });
+
+    const text = response.data && response.data.content && response.data.content[0] ? response.data.content[0].text : '[]';
+    const match = text.match(/\[[\s\S]*\]/);
+    const negatives = match ? JSON.parse(match[0]) : [];
+
+    res.json({ success: true, data: { negatives } });
+  } catch(err) {
+    console.error('[ai/negatives]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /api/scrape/google ───────────────────────────────────────────────────
 app.post('/api/scrape/google', async (req, res) => {
   if (!SCRAPER_URL) return res.status(503).json({ error: 'SCRAPER_URL not configured' });
