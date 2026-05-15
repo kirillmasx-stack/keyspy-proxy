@@ -37,55 +37,49 @@ app.post('/api/keywords', async (req, res) => {
 
     const headers = { Authorization: getAuthHeader(), 'Content-Type': 'application/json' };
 
-    // Use keyword_suggestions - returns array of related keywords
-    const suggestEndpoint = engine === 'bing'
-      ? `${DFORSEO_BASE}/keywords_data/bing/keywords_for_site/live`
-      : `${DFORSEO_BASE}/dataforseo_labs/google/keyword_suggestions/live`;
-
-    const suggestPayload = engine === 'bing'
-      ? [{ target: keyword, location_code, language_code, limit: 50 }]
-      : [{ keyword, location_code, language_code, limit: 50, include_seed_keyword: true }];
-
-    const suggestRes = await axios.post(suggestEndpoint, suggestPayload, { headers }).catch(() => null);
-    const suggestTask = suggestRes?.data?.tasks?.[0];
-    console.log('[keywords] suggest status:', suggestTask?.status_code, 'items:', suggestTask?.result?.[0]?.items?.length);
-
-    // Also get search volume for seed keyword
+    // ── 1. Search Volume (Google Ads Planner data) ──────────────────────────
     const svEndpoint = engine === 'bing'
       ? `${DFORSEO_BASE}/keywords_data/bing/search_volume/live`
       : `${DFORSEO_BASE}/keywords_data/google_ads/search_volume/live`;
     const svRes = await axios.post(svEndpoint, [{ keywords: [keyword], location_code, language_code }], { headers }).catch(() => null);
     const svTask = svRes?.data?.tasks?.[0];
-
     const mainItems = svTask?.result?.[0]?.items || [];
-    const suggestItems = (suggestTask?.result?.[0]?.items || []).map(item => ({
-      keyword: item.keyword_data?.keyword || item.keyword || '',
-      search_volume: item.keyword_data?.keyword_info?.search_volume || item.search_volume || 0,
-      cpc: item.keyword_data?.keyword_info?.cpc || item.cpc || 0,
-      competition: item.keyword_data?.keyword_info?.competition || item.competition || 0,
-      competition_level: item.keyword_data?.keyword_info?.competition_level || item.competition_level || '',
-      monthly_searches: item.keyword_data?.keyword_info?.monthly_searches || item.monthly_searches || [],
-    }));
+    console.log('[keywords] search_volume status:', svTask?.status_code, 'items:', mainItems.length);
 
-    const allItems = [...mainItems, ...suggestItems];
+    // ── 2. Keyword Ideas (keywords_for_keywords) ──────────────────────────────
+    const ideasEndpoint = engine === 'bing'
+      ? `${DFORSEO_BASE}/keywords_data/bing/keywords_for_keywords/live`
+      : `${DFORSEO_BASE}/keywords_data/google_ads/keywords_for_keywords/live`;
+    const ideasRes = await axios.post(ideasEndpoint, [{ keywords: [keyword], location_code, language_code, limit: 50 }], { headers }).catch(() => null);
+    const ideasTask = ideasRes?.data?.tasks?.[0];
+    const ideasItems = ideasTask?.result || [];
+    console.log('[keywords] ideas status:', ideasTask?.status_code, 'items:', ideasItems.length);
+
+    const allItems = [...mainItems, ...ideasItems];
     console.log('[keywords] total items:', allItems.length);
 
     if (!allItems.length) {
       return res.status(400).json({ error: 'No keyword data found. Try a different keyword.' });
     }
 
-    const keywords = allItems.map(item => ({
-      keyword: item.keyword,
+    const mapItem = (item, isIdea = false) => ({
+      keyword: item.keyword || '',
       volume: item.search_volume || 0,
-      cpc: item.cpc || 0,
-      competition: item.competition || 0,
+      cpc: parseFloat(item.cpc || 0),
+      competition: parseFloat(item.competition || 0),
       competition_level: item.competition_level || '',
       monthly_searches: (item.monthly_searches || []).slice(0, 12).map(m => ({
         year: m.year, month: m.month, volume: m.search_volume || 0
       })),
-    })).filter(k => k.keyword);
+      is_idea: isIdea,
+    });
 
-    res.json({ success: true, data: { keyword, keywords, total: keywords.length } });
+    const seedKeywords = mainItems.map(k => mapItem(k, false)).filter(k => k.keyword);
+    const ideaKeywords = ideasItems.map(k => mapItem(k, true)).filter(k => k.keyword);
+    const keywords = [...seedKeywords, ...ideaKeywords];
+
+    console.log('[keywords] seed:', seedKeywords.length, 'ideas:', ideaKeywords.length);
+    res.json({ success: true, data: { keyword, keywords, seed: seedKeywords, ideas: ideaKeywords, total: keywords.length } });
   } catch(err) {
     console.error('[keywords]', err.message);
     res.status(500).json({ error: err.message });
