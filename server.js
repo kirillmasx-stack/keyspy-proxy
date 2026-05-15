@@ -55,8 +55,12 @@ app.post('/api/keywords', async (req, res) => {
     const svTask = svRes?.data?.tasks?.[0];
 
     const mainItems = svTask?.result?.[0]?.items || [];
-    const ideasItems = ideasTask?.result?.[0]?.items || [];
-    const allItems = [...mainItems, ...ideasItems];
+    // keywords_for_keywords returns items directly in result array
+    const ideasResult = ideasTask?.result?.[0];
+    const ideasItems = ideasResult?.items || ideasResult || [];
+    console.log('[keywords] ideasResult keys:', ideasResult ? Object.keys(ideasResult).join(',') : 'null');
+    console.log('[keywords] ideasItems type:', Array.isArray(ideasItems) ? 'array' : typeof ideasItems, 'len:', ideasItems?.length);
+    const allItems = [...mainItems, ...(Array.isArray(ideasItems) ? ideasItems : [])];
 
     if (!allItems.length) {
       return res.status(400).json({ error: ideasTask?.status_message || 'No keyword data found' });
